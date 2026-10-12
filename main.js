@@ -6,6 +6,84 @@ import { mergeGeometries } from './libs/BufferGeometryUtils.js';
 import { GLTFExporter } from './libs/GLTFExporter.js';
 import { GLTFLoader } from './libs/GLTFLoader.js';
 import { DRACOLoader } from './libs/DRACOLoader.js';
+import { EffectComposer } from './libs/postprocessing/EffectComposer.js';
+import { RenderPass } from './libs/postprocessing/RenderPass.js';
+import { ShaderPass } from './libs/postprocessing/ShaderPass.js';
+import { OutputPass } from './libs/postprocessing/OutputPass.js';
+import { SSAOPass } from './libs/postprocessing/SSAOPass.js';
+import { RGBELoader } from './libs/RGBELoader.js';
+
+// ── SVG 图标系统 ──
+// 统一 16×16 viewBox, stroke 1.5px 圆头圆接。所有图标从 ICON 常量取,字符 emoji/Segoe Symbol 全替换。
+const ICON = {
+  hand:     '<svg viewBox="0 0 16 16" class="icon"><path d="M5.5 2v6.5M7.5 1.5v11M9.5 4v8M11.5 5v6L10.2 13l-1.7.7H5l-2.5-2 2.5-3"/></svg>',
+  arrow:    '<svg viewBox="0 0 16 16" class="icon"><path d="M2 14l5-10 3 4 3 .8"/></svg>',
+  wall:     '<svg viewBox="0 0 16 16" class="icon"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 7h12M2 11h12"/></svg>',
+  door:     '<svg viewBox="0 0 16 16" class="icon"><path d="M4 13V3h6v10"/><circle cx="8.6" cy="8" r=".5"/></svg>',
+  window:   '<svg viewBox="0 0 16 16" class="icon"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M8 3v10M2 8h12"/></svg>',
+  floor:    '<svg viewBox="0 0 16 16" class="icon"><path d="M2 5l6-3 6 3v6l-6 3-6-3z"/><path d="M2 5l6 3 6-3M8 8v6"/></svg>',
+  furn:     '<svg viewBox="0 0 16 16" class="icon"><path d="M4 11V6h4v5M12 11V8a2 2 0 00-2-2"/><path d="M3 11h10v1.5H3z"/></svg>',
+  stairs:   '<svg viewBox="0 0 16 16" class="icon"><path d="M2 14h3v-3h3V8h3V5h3"/></svg>',
+  files:    '<svg viewBox="0 0 16 16" class="icon"><path d="M3 2h4l1.5 1.5H13a1 1 0 011 1V13a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/></svg>',
+  theme:    '<svg viewBox="0 0 16 16" class="icon"><path d="M8 2a6 6 0 100 12 1.4 1.4 0 001-2.5l-.4-.4a1 1 0 010-1.4l.4-.4A1.4 1.4 0 0010 6.5 6 6 0 008 2z"/><circle cx="5" cy="6" r=".7"/><circle cx="3.5" cy="8.5" r=".7"/><circle cx="5.5" cy="11" r=".7"/></svg>',
+  outline:  '<svg viewBox="0 0 16 16" class="icon"><rect x="2" y="3" width="12" height="2" rx=".5"/><rect x="2" y="7" width="12" height="2" rx=".5"/><rect x="2" y="11" width="12" height="2" rx=".5"/></svg>',
+  inspector:'<svg viewBox="0 0 16 16" class="icon"><rect x="2" y="2" width="12" height="12" rx="1.5"/><path d="M5 6h6M5 8h4M5 10h6"/></svg>',
+  ai:       '<svg viewBox="0 0 16 16" class="icon"><path d="M8 2l1.6 3.4L13 7l-3.4 1.6L8 12l-1.6-3.4L3 7l3.4-1.6z"/></svg>',
+  plan:     '<svg viewBox="0 0 16 16" class="icon"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M5 10l2-3 2 2 2-3"/></svg>',
+  cube:     '<svg viewBox="0 0 16 16" class="icon"><path d="M8 1.5L14 4.5v7L8 14.5L2 11.5v-7z"/><path d="M8 1.5v13M2 4.5l6 3 6-3"/></svg>',
+  reset:    '<svg viewBox="0 0 16 16" class="icon"><path d="M3 8a5 5 0 119.5 2"/><path d="M13 3v4h-4"/></svg>',
+  appearance:'<svg viewBox="0 0 16 16" class="icon"><circle cx="8" cy="8" r="6"/><path d="M8 2v12M2 8h12" stroke-width="1"/></svg>',
+  chevron:  '<svg viewBox="0 0 16 16" class="icon"><path d="M4 6l4 4 4-4"/></svg>',
+  undo:     '<svg viewBox="0 0 16 16" class="icon"><path d="M3 7l4-4v3h4a4 4 0 010 8h-2"/></svg>',
+  redo:     '<svg viewBox="0 0 16 16" class="icon"><path d="M13 7l-4-4v3H5a4 4 0 000 8h2"/></svg>',
+  save:     '<svg viewBox="0 0 16 16" class="icon"><path d="M3 2h8l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M5 2v4h6V2M5 10h6v4H5z"/></svg>',
+  download: '<svg viewBox="0 0 16 16" class="icon"><path d="M8 2v8m-3-3l3 3 3-3M3 14h10"/></svg>',
+  upload:   '<svg viewBox="0 0 16 16" class="icon"><path d="M8 10V2m-3 3l3-3 3 3M3 14h10"/></svg>',
+  plus:     '<svg viewBox="0 0 16 16" class="icon"><path d="M8 3v10M3 8h10"/></svg>',
+  refresh:  '<svg viewBox="0 0 16 16" class="icon"><path d="M3 8a5 5 0 019-3M13 8a5 5 0 01-9 3"/><path d="M12 2v3h-3M4 14v-3h3"/></svg>',
+  eye:      '<svg viewBox="0 0 16 16" class="icon"><path d="M1 8s2-5 7-5 7 5 7 5-2 5-7 5S1 8 1 8z"/><circle cx="8" cy="8" r="2"/></svg>',
+  eyeOff:   '<svg viewBox="0 0 16 16" class="icon"><path d="M1 8s2-5 7-5 7 5 7 5-2 5-7 5S1 8 1 8z"/><path d="M2 2l12 12"/></svg>',
+  sun:      '<svg viewBox="0 0 16 16" class="icon"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M3 13l1.4-1.4M11.6 4.4L13 3"/></svg>',
+  moon:     '<svg viewBox="0 0 16 16" class="icon"><path d="M13 10a5 5 0 01-7-7 5 5 0 107 7z"/></svg>',
+  monitor:  '<svg viewBox="0 0 16 16" class="icon"><rect x="2" y="3" width="12" height="8" rx="1"/><path d="M6 14h4M8 11v3"/></svg>',
+  settings: '<svg viewBox="0 0 16 16" class="icon"><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M3 13l1.5-1.5M11.5 4.5L13 3"/></svg>',
+  lock:     '<svg viewBox="0 0 16 16" class="icon"><rect x="3" y="7" width="10" height="7" rx="1"/><path d="M5 7V5a3 3 0 016 0v2"/></svg>',
+  unlock:   '<svg viewBox="0 0 16 16" class="icon"><rect x="3" y="7" width="10" height="7" rx="1"/><path d="M5 7V5a3 3 0 015-2"/></svg>',
+  check:    '<svg viewBox="0 0 16 16" class="icon"><path d="M3 8l3 3 7-7"/></svg>',
+  x:        '<svg viewBox="0 0 16 16" class="icon"><path d="M3 3l10 10M13 3L3 13"/></svg>',
+  warn:     '<svg viewBox="0 0 16 16" class="icon"><path d="M8 2l7 12H1z"/><path d="M8 7v3M8 12v.1"/></svg>',
+  info:     '<svg viewBox="0 0 16 16" class="icon"><circle cx="8" cy="8" r="6"/><path d="M8 7v4M8 5v.1"/></svg>',
+  ruler:    '<svg viewBox="0 0 16 16" class="icon"><rect x="1" y="5" width="14" height="6" rx="1"/><path d="M4 5v2M7 5v3M10 5v2M13 5v3"/></svg>',
+  copy:     '<svg viewBox="0 0 16 16" class="icon"><rect x="4" y="4" width="9" height="10" rx="1"/><path d="M3 12V1h9v3"/></svg>',
+  folder:   '<svg viewBox="0 0 16 16" class="icon"><path d="M2 4a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1V13a1 1 0 01-1 1H3a1 1 0 01-1-1z"/></svg>',
+  globe:    '<svg viewBox="0 0 16 16" class="icon"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"/></svg>',
+  robot:    '<svg viewBox="0 0 16 16" class="icon"><rect x="3" y="5" width="10" height="8" rx="1.5"/><circle cx="6" cy="9" r=".7"/><circle cx="10" cy="9" r=".7"/><path d="M8 5V3M6 1h4"/></svg>',
+  edit:     '<svg viewBox="0 0 16 16" class="icon"><path d="M3 13l1-3 7-7 2 2-7 7z"/><path d="M9 5l2 2"/></svg>',
+  copy:     '<svg viewBox="0 0 16 16" class="icon"><rect x="4" y="4" width="9" height="10" rx="1"/><path d="M3 12V1h9v3"/></svg>',
+  export:   '<svg viewBox="0 0 16 16" class="icon"><path d="M8 2v8m-3-3l3 3 3-3M3 14h10"/></svg>',
+  reset:    '<svg viewBox="0 0 16 16" class="icon"><path d="M3 8a5 5 0 119.5 2"/><path d="M13 3v4h-4"/></svg>',
+  trash:    '<svg viewBox="0 0 16 16" class="icon"><path d="M3 4h10M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1M4 4l1 9a1 1 0 001 1h4a1 1 0 001-1l1-9"/></svg>',
+  pkg:      '<svg viewBox="0 0 16 16" class="icon"><path d="M8 1.5l6 3v7l-6 3-6-3v-7z"/><path d="M8 8v6.5M14 4.5L8 8 2 4.5"/></svg>',
+  scissors: '<svg viewBox="0 0 16 16" class="icon"><circle cx="4" cy="11" r="2"/><circle cx="12" cy="11" r="2"/><path d="M6 10l8-7M6 13l8-7"/></svg>',
+  layers:   '<svg viewBox="0 0 16 16" class="icon"><path d="M8 2l6 3-6 3-6-3zM2 8l6 3 6-3M2 11l6 3 6-3"/></svg>',
+  area:     '<svg viewBox="0 0 16 16" class="icon"><path d="M2 13V3h6a3 3 0 013 0h3v7H5a3 3 0 00-3 3z"/></svg>',
+  height:   '<svg viewBox="0 0 16 16" class="icon"><path d="M8 2v14M5 5l3-3 3 3M5 11l3 3 3-3"/></svg>',
+  search:   '<svg viewBox="0 0 16 16" class="icon"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>',
+  fullscreen:'<svg viewBox="0 0 16 16" class="icon"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/></svg>',
+  fullscreenExit:'<svg viewBox="0 0 16 16" class="icon"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" transform="rotate(45 8 8)"/></svg>',
+};
+// 把 <svg> 字符串渲染成 DOM 节点,默认 size=16
+function _mkIcon(name, size = 16) {
+  const tpl = ICON[name];
+  if (!tpl) return document.createTextNode('?');
+  const wrap = document.createElement('span');
+  wrap.className = 'icon-wrap';
+  wrap.style.cssText = `width:${size}px;height:${size}px;display:inline-flex;align-items:center;justify-content:center;line-height:0;flex:none`;
+  wrap.innerHTML = tpl.replace('<svg ', `<svg width="${size}" height="${size}" `);
+  return wrap;
+}
+globalThis.ICON = ICON;
+globalThis._mkIcon = _mkIcon;
 
 // DRACO 压缩 GLB 解码器：参考程序中的家具多为 DRACO 压缩
 const _draco = new DRACOLoader();
@@ -16,6 +94,7 @@ _gltfLoader.setDRACOLoader(_draco);
 // GLB 缓存：file → THREE.Group（已归零到 min.y=0、共享几何/材质）
 const _glbCache = new Map();
 const _glbLoading = new Map();
+globalThis._glbCache = _glbCache;
 async function loadGLB(file) {
   if (_glbCache.has(file)) return _glbCache.get(file);
   if (_glbLoading.has(file)) return _glbLoading.get(file);
@@ -25,7 +104,12 @@ async function loadGLB(file) {
       g.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(g);
       g.position.y = -box.min.y;                  // 归零到地面
-      g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      g.traverse(o => {
+        if (o.isMesh) {
+          o.castShadow = true; o.receiveShadow = true;
+          if (o.geometry) o.geometry.__glbShared = true;   // 缓存共享几何,dispose 时跳过(防 GPU 缓存反复失效)
+        }
+      });
       _glbCache.set(file, g);
       resolve(g);
     }, undefined, err => reject(err));
@@ -56,7 +140,69 @@ function glbBuild(file) {
   };
 }
 
-// ── 自定义模型（用户导入的 GLB / glTF）────────────────────────
+// 启动期预加载：避免首次放置时视觉空一帧后才出现
+const _PRELOAD_FILES = [
+  'glam-velvet-sofa', 'modern-coffee-table', 'modern-armchair', 'modern-cabinet',
+  'hospital-door', 'hospital-bench', 'hospital-sharps-container', 'pulse-oximeter',
+  'medical-exam-lamp', 'hospital-bed', 'modern-table', 'aveiro-cabinet',
+  'hospital-bedside-cabinet', 'hospital-exam-chair', 'air-conditioner', 'hospital-medicine-cabinet',
+  'medical-surgical-cart', 'medical-equipment-25', 'medical-equipment-19', 'medical-equipment-26',
+  'medical-equipment-8', 'medical-equipment-43', 'medical-equipment-20', 'medical-equipment-9',
+  'medical-equipment-7', 'medical-equipment-41',
+];
+function preloadGLBs() {
+  return Promise.all(_PRELOAD_FILES.map(f => loadGLB(f).catch(() => null)));
+}
+
+// ── 木地板 PBR 贴图加载（color + normal + roughness）────────────────────────
+// 按 f.tex === 'wood-floor-040' 触发，加载完自动重建 floor 节点挂上贴图
+const _floorPbrCache = new Map();
+globalThis._floorPbrCache = _floorPbrCache;
+function _floorPbrTex(id) {
+  // 提前发起加载；若已有则跳过。返回 entry（可能 ready=false）
+  if (_floorPbrCache.has(id)) return _floorPbrCache.get(id);
+  const entry = { ready: false, color: null, normal: null, rough: null };
+  _floorPbrCache.set(id, entry);
+  const base = `./libs/textures/${id}/`;
+  const txLoader = new THREE.TextureLoader();
+  const wrap = t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t; };
+  (async () => {
+    try {
+      entry.color  = wrap(await new Promise((res, rej) => txLoader.load(base + 'WoodFloor040_1K-JPG_Color.jpg',     res, undefined, rej)));
+      entry.normal = wrap(await new Promise((res, rej) => txLoader.load(base + 'WoodFloor040_1K-JPG_NormalGL.jpg',   res, undefined, rej)));
+      entry.rough  = wrap(await new Promise((res, rej) => txLoader.load(base + 'WoodFloor040_1K-JPG_Roughness.jpg',  res, undefined, rej)));
+      entry.color.colorSpace = THREE.SRGBColorSpace;
+      entry.ready = true;
+      // 标记后让 floor 重建挂上贴图
+      _geomDirty = true;
+      requestAnimationFrame(() => { try { rebuild3D(); } catch (_) {} });
+    } catch (e) { console.warn('Floor PBR load fail', id, e); }
+  })();
+  return entry;
+}
+
+// ── HDR 环境光（Poly Haven Studio, CC0）────────────────────────
+let _hdrEnvironment = null;
+globalThis._hdrEnvironment = () => _hdrEnvironment;
+async function _loadHDREnvironment(url) {
+  const tex = await new Promise((res, rej) => {
+    new RGBELoader().load(url, res, undefined, rej);
+  });
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  const pmremTex = pmrem.fromEquirectangular(tex).texture;
+  tex.dispose();
+  return pmremTex;
+}
+async function _initHDREnvironment() {
+  try {
+    _hdrEnvironment = await _loadHDREnvironment('./libs/environments/poly_haven_studio_1k.hdr');
+    scene.environment = _hdrEnvironment;
+    scene.environmentIntensity = 0.7;   // 比 RoomEnvironment 强一些，HDR 动态范围更大
+  } catch (e) { console.warn('HDR load fail, keep RoomEnvironment', e); }
+}
+// 启动预加载
+preloadGLBs();
+_initHDREnvironment();
 // 字节存 IndexedDB（tp3d_db / assets），doc.assets 只放元数据。
 // 类型键统一加 user: 前缀，避免和内置 FURN 键冲突。
 const CUSTOM_PREFIX = 'user:';
@@ -244,6 +390,7 @@ function fitCanvas() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   updateOrthoFrustum();
+  if (_composer) { _composer.setSize(w, h); _composer.setPixelRatio(renderer.getPixelRatio()); }
   _needsRender = true;   // 强制下一帧重画 —— 修删除/折叠面板后的闪黑
 }
 
@@ -271,7 +418,7 @@ function syncFsBtn() {
   if (!fsBtn) return;
   const on = isFs();
   fsBtn.classList.toggle('on', on);
-  fsBtn.textContent = on ? '⤡' : '⤢';   // ⤢ 进入全屏 / ⤡ 退出全屏
+  fsBtn.innerHTML = on ? ICON.fullscreenExit : ICON.fullscreen;
   fsBtn.title = on ? '退出全屏' : '全屏预览此 3D 区域';
 }
 if (fsBtn) {
@@ -446,7 +593,7 @@ ground.position.y = -0.002;
 ground.receiveShadow = true;
 scene.add(ground);
 
-const grid = new THREE.GridHelper(24, 48, 0x9fb0be, 0xcdd6dd);
+let grid = new THREE.GridHelper(24, 48, 0x9fb0be, 0xcdd6dd);
 grid.position.y = 0.001;
 grid.material.transparent = true; grid.material.opacity = 0.4;
 grid.material.depthWrite = false;        // 关闭深度写入:网格永远在物体之下
@@ -552,6 +699,8 @@ const GLASS_PRESETS = [
   { n: '灰',       c: '#9a9a9a' },
 ];
 const texCache = new Map();
+globalThis._getTexForTest = getTex;
+globalThis._texCacheForTest = texCache;
 
 // ── 程序化纹理：木纹 / 格子 ──
 function hexToRgb(hex) {
@@ -671,8 +820,83 @@ function getTex(kind, baseHex) {
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.anisotropy = 8;
   tex.colorSpace = THREE.SRGBColorSpace;
+  // PBR 派生：normal = Sobel 边缘，roughness = 灰度倒置
+  // 缓存到 tex.userData.__pbr = { normal: CanvasTexture, rough: CanvasTexture }
+  try {
+    const nCanvas = _genNormalFromCanvas(c);
+    const rCanvas = _genRoughFromCanvas(c);
+    const nTex = new THREE.CanvasTexture(nCanvas);
+    nTex.wrapS = nTex.wrapT = THREE.RepeatWrapping;
+    nTex.anisotropy = 4;
+    nTex.colorSpace = THREE.NoColorSpace;
+    const rTex = new THREE.CanvasTexture(rCanvas);
+    rTex.wrapS = rTex.wrapT = THREE.RepeatWrapping;
+    rTex.anisotropy = 4;
+    rTex.colorSpace = THREE.NoColorSpace;
+    tex.userData.__pbr = { normal: nTex, rough: rTex };
+  } catch (e) { console.warn('PBR derive fail', kind, e); }
   texCache.set(key, tex);
   return tex;
+}
+// Sobel 从 color canvas 生成 normal map (RGB 编码切线空间法向)
+function _genNormalFromCanvas(src) {
+  const w = src.width, h = src.height;
+  const sctx = src.getContext('2d');
+  const srcData = sctx.getImageData(0, 0, w, h).data;
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  const octx = out.getContext('2d');
+  const dstData = octx.createImageData(w, h);
+  const strength = 1.8;
+  const idx = (x, y) => ((y + h) % h) * w * 4 + ((x + w) % w) * 4;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      // 灰度: Rec.709
+      const l = (c) => 0.2126 * c + 0.7152 * c + 0.0722 * c;
+      const tl = l(srcData[idx(x - 1, y - 1)]) / 255;
+      const tc = l(srcData[idx(x,     y - 1)]) / 255;
+      const tr = l(srcData[idx(x + 1, y - 1)]) / 255;
+      const ml = l(srcData[idx(x - 1, y    )]) / 255;
+      const mr = l(srcData[idx(x + 1, y    )]) / 255;
+      const bl = l(srcData[idx(x - 1, y + 1)]) / 255;
+      const bc = l(srcData[idx(x,     y + 1)]) / 255;
+      const br = l(srcData[idx(x + 1, y + 1)]) / 255;
+      // Sobel
+      const gx = (tr + 2 * mr + br) - (tl + 2 * ml + bl);
+      const gy = (bl + 2 * bc + br) - (tl + 2 * tc + tr);
+      const nx = -gx * strength;
+      const ny = -gy * strength;
+      const nz = 1.0;
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      dstData[i + 0] = Math.round(((nx / len) * 0.5 + 0.5) * 255);
+      dstData[i + 1] = Math.round(((ny / len) * 0.5 + 0.5) * 255);
+      dstData[i + 2] = Math.round(((nz / len) * 0.5 + 0.5) * 255);
+      dstData[i + 3] = 255;
+    }
+  }
+  octx.putImageData(dstData, 0, 0);
+  return out;
+}
+// 灰度倒置:亮色区域光滑(roughness 低)，暗色区域粗糙(roughness 高)
+function _genRoughFromCanvas(src) {
+  const w = src.width, h = src.height;
+  const sctx = src.getContext('2d');
+  const srcData = sctx.getImageData(0, 0, w, h).data;
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  const octx = out.getContext('2d');
+  const dstData = octx.createImageData(w, h);
+  for (let i = 0; i < srcData.length; i += 4) {
+    // 灰度
+    const lum = (0.2126 * srcData[i] + 0.7152 * srcData[i + 1] + 0.0722 * srcData[i + 2]) / 255;
+    // 映射:亮(lum=1) → roughness 0.35 (光滑),暗(lum=0) → 0.95 (粗糙)
+    const r = (0.95 - 0.6 * lum) * 255;
+    dstData[i + 0] = dstData[i + 1] = dstData[i + 2] = r;
+    dstData[i + 3] = 255;
+  }
+  octx.putImageData(dstData, 0, 0);
+  return out;
 }
 function darken(hex, t) { const c = hexToRgb(hex); return rgbCss(mixRgb(c, { r: 0, g: 0, b: 0 }, t)); }
 function lighten(hex, t) { const c = hexToRgb(hex); return rgbCss(mixRgb(c, { r: 255, g: 255, b: 255 }, t)); }
@@ -684,6 +908,7 @@ const TEX_OPTIONS = [
   { k: 'wood',  n: '木纹',   icon: '▥' },
   { k: 'grid',  n: '格子',   icon: '▦' },
   { k: 'tile',  n: '瓷砖',   icon: '◫' },
+  { k: 'wood-floor-040', n: '实木地板(PBR)', icon: '🪵' },
 ];
 
 // 三个内置主题(出厂模板,用户可编辑生成「我的版本」,支持恢复出厂):
@@ -855,6 +1080,17 @@ function applyMatVariant(baseMat, tex, baseHex, repeat) {
   const t = getTex(tex, hex);
   if (repeat) { t.repeat.set(repU, repV); t.needsUpdate = true; }
   m.map = t;
+  // PBR 派生 normalMap + roughnessMap（程序化纹理自动获得）
+  const pbr = t.userData && t.userData.__pbr;
+  if (pbr && pbr.normal && pbr.rough) {
+    if (repeat) {
+      pbr.normal.repeat.set(repU, repV); pbr.normal.needsUpdate = true;
+      pbr.rough.repeat.set(repU, repV);  pbr.rough.needsUpdate = true;
+    }
+    m.normalMap = pbr.normal;
+    m.roughnessMap = pbr.rough;
+    m.normalScale = new THREE.Vector2(0.6, 0.6);
+  }
   // map 启用后材质需要重新计算：roughness 略微降低让纹理可见
   if (m.roughness != null && m.roughness > 0.85) m.roughness = 0.75;
   m.needsUpdate = true;
@@ -982,6 +1218,9 @@ globalThis.snapFurn = snapFurn;       // 暴露吸附函数给 e2e
   globalThis.handlesGroup = handlesGroup;
   globalThis.scene = scene;             // 暴露 scene 给 e2e
   globalThis.renderer = renderer;       // 暴露 renderer 给 e2e / perf 监控
+  globalThis.keyLight = keyLight;       // 暴露主光源给画质档切换
+  globalThis.applyRenderPreset = applyRenderPreset;
+  globalThis._renderPresetName = () => _renderPresetName;
   globalThis.THREE = THREE;             // 测试用：让 page.evaluate 能 new THREE.*
   globalThis.drag = () => drag;         // 暴露 drag 状态 getter
   globalThis.drag_set = (v) => { drag = v; };  // 仅供测试/内部调用
@@ -1006,8 +1245,11 @@ globalThis.snapFurn = snapFurn;       // 暴露吸附函数给 e2e
   globalThis.furnProto = furnProto;                            // 测试用：原生家具 InstancedMesh parts 缓存
   globalThis.furnInstanced = furnInstanced;                    // 测试用：[type] → [InstancedMesh, ...]
   globalThis.furnBBox = furnBBox;                              // 测试用：type → {center, size}
+  globalThis._wallNodeByWi = _wallNodeByWi;                    // 测试用：墙增量节点表
+  globalThis._floorNodeByFi = _floorNodeByFi;                  // 测试用：地面增量节点表
   Object.defineProperty(globalThis, 'pickMeshes', { get() { return pickMeshes; }, configurable: true }); // 测试用：pick 候选 mesh 数组(随 rebuild 重新指向)
   globalThis.planGroup = planGroup;                            // 测试用：场景根 group
+  globalThis.curDoc = () => doc;                                // 测试用：当前打开方案
   globalThis._furnDummy = _furnDummy;                          // 测试用：scratch Object3D
   globalThis._furnMat = _furnMat;                              // 测试用：scratch Matrix4
   globalThis._furnZero = _furnZero;                            // 测试用：scratch zero-scale Matrix4
@@ -1172,6 +1414,7 @@ globalThis.snapFurn = snapFurn;       // 暴露吸附函数给 e2e
   globalThis.markUnsaved = markUnsaved;             // 测试用:手动控制 dirty 标志
   globalThis._rebuildCount = () => _rebuildCount || 0;   // 测试用:总 rebuild 调用次数
   globalThis._resetRebuildCount = () => { _rebuildCount = 0; };
+  globalThis._rebuild3DNow = () => rebuild3D();          // 测试用:同步触发一次几何重建(绕过 dirty 节流)
   globalThis._rendererInfo = () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, frame: renderer.info.render.frame });
   globalThis._dragPreviewActive = () => !!(dragPreviewGroup && dragPreviewGroup.children.length);
   globalThis._panBy = _panBy;                                 // 测试用:左键平移函数
@@ -1198,7 +1441,9 @@ globalThis.snapFurn = snapFurn;       // 暴露吸附函数给 e2e
     let nx = x, nz = z, nr = furnRot;
 
     pushUndo();
-    doc.furniture.push({ type, x: nx, z: nz, rot: nr, lv: activeLv });
+    // 显式 y:0:新放置的家具一律贴地,避免 ceiling light / shower 之类的
+    // def.yOff 把模型顶到半空或埋入地下。f.y 可在 inspector 覆写为任意高度。
+    doc.furniture.push({ type, x: nx, z: nz, y: 0, rot: nr, lv: activeLv });
     // 与点击放置行为一致:不自动选中(用户可继续放置,左侧家具库面板保持可见)
     rebuild(); refreshProps();
     return { x: nx, z: nz, rot: nr };
@@ -1228,6 +1473,7 @@ globalThis.snapFurn = snapFurn;       // 暴露吸附函数给 e2e
 }
 globalThis.__exposeE2E = _exposeE2E;
 let undoStack = [], redoStack = [];
+let undoFurnStack = [], redoFurnStack = [];
 let clipboard = null;                 // 复制粘贴用的源对象引用
 let gridSnap = true;
 const SNAP = 0.05;
@@ -1584,6 +1830,129 @@ planGroup.position.set(-CX, 0, -CZ);
 scene.add(planGroup);
 const handlesGroup = new THREE.Group();
 scene.add(handlesGroup);
+
+// ── 接触阴影（每家具 1 个躺平 plane，共享 alphaMap + material，几何按 w/d 池化）──
+// 参考 openfloorplan-main/js/view3d.js:1269 — 弥补 shadow map 在物体下的虚化
+const _contactShadowGroup = new THREE.Group();
+_contactShadowGroup.name = 'contactShadows';
+planGroup.add(_contactShadowGroup);
+const _furnShadowByFi = new Map();
+globalThis._furnShadowByFi = _furnShadowByFi;
+globalThis._contactShadowGroup = _contactShadowGroup;
+let _contactShadowTex = null;
+function _ensureContactShadowTex() {
+  if (_contactShadowTex) return _contactShadowTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createRadialGradient(128, 128, 8, 128, 128, 126);
+  grd.addColorStop(0,   'rgba(255,255,255,0.85)');
+  grd.addColorStop(0.5, 'rgba(255,255,255,0.42)');
+  grd.addColorStop(0.82,'rgba(255,255,255,0.10)');
+  grd.addColorStop(1,   'rgba(255,255,255,0)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.anisotropy = 4;
+  _contactShadowTex = tex;
+  return tex;
+}
+let _contactShadowMat = null;
+function _ensureContactShadowMat() {
+  if (_contactShadowMat) return _contactShadowMat;
+  _contactShadowMat = new THREE.MeshBasicMaterial({
+    color: 0x17120e,
+    alphaMap: _ensureContactShadowTex(),
+    transparent: true,
+    opacity: 0.65,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  return _contactShadowMat;
+}
+const _contactShadowGeoCache = new Map();
+const _contactShadowInstByKey = new Map(); // key -> { mesh: InstancedMesh, hash, keys: [...], slots: [...] }
+function _getContactShadowGeo(w, d) {
+  // 离散化到 12.5cm 网格，相同 footprint 共享 PlaneGeometry
+  const key = (Math.round(w * 8) / 8).toFixed(3) + 'x' + (Math.round(d * 8) / 8).toFixed(3);
+  if (_contactShadowGeoCache.has(key)) return { geo: _contactShadowGeoCache.get(key), key };
+  const g = new THREE.PlaneGeometry(w, d);
+  _contactShadowGeoCache.set(key, g);
+  return { geo: g, key };
+}
+function _refreshContactShadows(doc) {
+  // InstancedMesh 化：按 footprint (w×d,离散 12.5cm) 分组,每组一个 InstancedMesh。
+  // 100 件家具 → ~10 个 draw call（按类型聚类,通常 footprint 数 << 家具数）
+  const list = doc.furniture || [];
+  const baseY = levelY(0) || 0;
+  const _mat = _ensureContactShadowMat();
+  const _tmpMat = new THREE.Matrix4();
+  const _tmpPos = new THREE.Vector3();
+  const _tmpQuat = new THREE.Quaternion();
+  const _tmpScl = new THREE.Vector3(1, 1, 1);
+  const _tmpEu = new THREE.Euler();
+
+  // 收集所有可见家具 → 按 footprint 分桶
+  const buckets = new Map(); // key -> Array<{fi, x, y, z, rot}>
+  const listHashes = [];
+  for (let fi = 0; fi < list.length; fi++) {
+    const f = list[fi];
+    const def = FURN[f.type];
+    if (!def) { listHashes.push(''); continue; }
+    const sc = (def.scale || 1) * (f.sc || 1);
+    const w = Math.max(0.2, (def.w || 0.5) * sc);
+    const d = Math.max(0.2, (def.d || 0.5) * sc);
+    const y = levelY(f.lv || 0) + (f.y != null ? f.y : (def.yOff || 0));
+    const rot = f.rot || 0;
+    const visible = !_isHidden('furn', fi);
+    const csHash = `${f.type}|${f.x}|${f.z}|${y}|${rot}|${sc}|${visible}`;
+    listHashes.push(csHash);
+    if (!visible) continue;
+    const { key } = _getContactShadowGeo(w, d);
+    let arr = buckets.get(key);
+    if (!arr) { arr = []; buckets.set(key, arr); }
+    arr.push({ fi, x: f.x, y: y + 0.006, z: f.z, rot });
+  }
+  const bucketsHash = Array.from(buckets.entries())
+    .sort(([a], [b]) => a < b ? -1 : 1)
+    .map(([k, arr]) => k + ':' + arr.length + ':' + arr.map(o => o.fi + ',' + o.x.toFixed(6) + ',' + o.z.toFixed(6)).join(';'))
+    .join('|');
+  // 全部 cache 命中且 instance 数未变 → 跳过
+  if (_contactShadowGroup.userData && _contactShadowGroup.userData.bucketsHash === bucketsHash) return;
+  _contactShadowGroup.userData.bucketsHash = bucketsHash;
+
+  // 清掉旧 InstancedMesh
+  for (const [, info] of _contactShadowInstByKey) {
+    _contactShadowGroup.remove(info.mesh);
+    info.mesh.dispose();
+  }
+  _contactShadowInstByKey.clear();
+
+  // 为每个 bucket 建一个新 InstancedMesh
+  for (const [key, arr] of buckets) {
+    const cap = arr.length;
+    const geo = _contactShadowGeoCache.get(key);
+    const im = new THREE.InstancedMesh(geo, _mat, cap);
+    im.renderOrder = 1;
+    im.castShadow = false;
+    im.receiveShadow = false;
+    im.frustumCulled = false; // 每个 instance 范围小，整体始终可见
+    for (let i = 0; i < cap; i++) {
+      const o = arr[i];
+      _tmpPos.set(o.x, o.y, o.z);
+      _tmpEu.set(-Math.PI / 2, 0, -o.rot);
+      _tmpQuat.setFromEuler(_tmpEu);
+      _tmpMat.compose(_tmpPos, _tmpQuat, _tmpScl);
+      im.setMatrixAt(i, _tmpMat);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    _contactShadowGroup.add(im);
+    _contactShadowInstByKey.set(key, { mesh: im, count: cap });
+  }
+  // 旧的 per-fi 缓存作废
+  _furnShadowByFi.clear();
+}
 const selHelper = new THREE.Group();
 scene.add(selHelper);
 const areaLabelsGroup = new THREE.Group();
@@ -1606,17 +1975,23 @@ let   _geomDirty = true;             // 本次 rebuild 是否真的改了 mesh(�
 function _wallGeomHash(w, miters) {
   const ml = miters ? miters.left : 0;
   const mr = miters ? miters.right : 0;
-  // 包含所有影响渲染的门窗可变视觉字段:t/width/height/kind/shape/isOpen/leafColor/leafTex/
-  // glassColor/sill(窗台高,影响窗框位置与墙洞)/hinge(铰链侧)/flip(开向)/swing
+  // 只含影响【几何】的字段(决定是否重跑 CSG/重建 mesh)。
+  // 纯材质字段(墙色/纹理/内外蒙皮色/门窗扇颜色纹理)拆到 _wallMatHash:
+  // 改色不再触发几何重建(材质原位换引用即可,也不需要阴影重烘焙)。
+  // 几何相关门窗字段:t/width/height/kind/shape/isOpen/sill/hinge/flip/swing
   return [w.ax, w.az, w.bx, w.bz, w.th, w.h, w.lv || 0,
-    (w.openings || []).map(o => `${o.t}|${o.width}|${o.height}|${o.kind || ''}|${o.shape || 'square'}|${o.isOpen ? 1 : 0}|${o.leafColor || ''}|${o.leafTex || ''}|${o.glassColor || ''}|${o.sill || 0}|${o.hinge || 0}|${o.flip ? 1 : 0}|${o.swing || ''}`).join(','),
+    (w.openings || []).map(o => `${o.t}|${o.width}|${o.height}|${o.kind || ''}|${o.shape || 'square'}|${o.isOpen ? 1 : 0}|${o.sill || 0}|${o.hinge || 0}|${o.flip ? 1 : 0}|${o.swing || ''}`).join(','),
     ml, mr,
     w.halfWall ? 1 : 0,
     w.halfHeight || 0,
-    w.wallTex || '', w.wallBase || '',
-    w.glass ? 1 : 0,
-    w.matIn || '', w.matOut || '',
-    w.colorIn || '', w.colorOut || ''
+    w.glass ? 1 : 0
+  ].join('#');
+}
+function _wallMatHash(w) {
+  // 只含影响【材质】的字段:墙基色/墙纹理/内外蒙皮/每洞门窗扇与玻璃颜色纹理
+  return [w.wallTex || '', w.wallBase || '',
+    w.matIn || '', w.matOut || '', w.colorIn || '', w.colorOut || '',
+    (w.openings || []).map(o => `${o.leafColor || ''}|${o.leafTex || ''}|${o.glassColor || ''}`).join(',')
   ].join('#');
 }
 function _floorGeomHash(f) {
@@ -1876,6 +2251,7 @@ function detectRooms() {
   showAreaLabels(rooms);
   toast(`识别到 ${rooms.length} 个房间，已生成分块地面（Ctrl+Z 可退回）`, 'success', 3000);
 }
+globalThis.detectRooms = detectRooms;
 
 // 房间面积标签：用 CanvasTexture 生成圆角白底 + 文字的 Sprite，挂在 areaLabelsGroup
 let areaLabelsVisible = true;
@@ -2040,11 +2416,32 @@ function stepRot15(cur, dir) {
 }
 
 // 撤销 / 重做
-function pushUndo() {
+// pushUndo 可选地接受一个 FURN 变更描述{furnRestore: {key: entry}}:
+//   - 写入时记录被删/被改的 FURN 条目,undo 时把它们放回,redo 时再删一次。
+//   - 因为 FURN 顶层不可 JSON 序列化(build 是函数),需要单独追踪。
+function pushUndo(furnDelta) {
   undoStack.push(JSON.stringify(doc));
-  if (undoStack.length > 60) undoStack.shift();
+  undoFurnStack.push(furnDelta || null);
+  if (undoStack.length > 60) { undoStack.shift(); undoFurnStack.shift(); }
   redoStack.length = 0;
+  redoFurnStack.length = 0;
   refreshUndoTip();
+}
+function _applyFurnDelta(delta, dir) {
+  if (!delta) return;
+  const restore = delta.furnRestore || {};
+  for (const k in restore) {
+    if (dir === 'undo') FURN[k] = restore[k];
+    else delete FURN[k];
+  }
+  // 反向:undo 时把 furnDelete 加回,redo 时删掉
+  for (const k of (delta.furnDelete || [])) {
+    if (dir === 'undo') {
+      // 重新创建;只有当此 key 原本就来自调用方记录的 restore 时才可行
+    } else {
+      delete FURN[k];
+    }
+  }
 }
 // 键盘微移（方向键）：选中家具 / 墙端点 / 门窗 / 地面都生效
 // Shift ×10。每按一次都 pushUndo（按一下回退一下，符合直觉）。
@@ -2208,18 +2605,40 @@ function setSelectionHidden(v) {
 }
 
 function syncUndoButtons() {
-  // 顶栏上的撤销/重做按钮已移除；快捷键 Ctrl+Z / Ctrl+Y 仍然有效，这里保留同步函数避免调用点抛错
+  const u = (typeof undoStack !== 'undefined' ? undoStack.length : 0);
+  const r = (typeof redoStack !== 'undefined' ? redoStack.length : 0);
+  const ub = document.getElementById('btnUndo');
+  const rb = document.getElementById('btnRedo');
+  if (ub) {
+    ub.disabled = u === 0;
+    const cnt = ub.querySelector('.tb-count'); if (cnt) cnt.textContent = u;
+    ub.title = u ? `撤销 (Ctrl+Z) — 可撤销 ${u} 步` : '撤销 (Ctrl+Z)';
+  }
+  if (rb) {
+    rb.disabled = r === 0;
+    const cnt = rb.querySelector('.tb-count'); if (cnt) cnt.textContent = r;
+    rb.title = r ? `重做 (Ctrl+Y) — 可重做 ${r} 步` : '重做 (Ctrl+Y)';
+  }
 }
 function undo() {
   if (!undoStack.length) return flash('没有可撤销的操作', 'warn');
   redoStack.push(JSON.stringify(doc));
+  redoFurnStack.push(undoFurnStack[undoFurnStack.length - 1]);
+  const delta = undoFurnStack.pop();
   doc = JSON.parse(undoStack.pop()); normDoc();
+  _applyFurnDelta(delta, 'undo');
+  if (delta && delta.furnRestore) {
+    for (const k in delta.furnRestore) { if (_glbCache && _glbCache.delete) _glbCache.delete(k); }
+  }
   sel = null; rebuild(); refreshProps(); flash('已撤销', 'success'); syncUndoButtons();
 }
 function redo() {
   if (!redoStack.length) return flash('没有可重做的操作', 'warn');
   undoStack.push(JSON.stringify(doc));
+  undoFurnStack.push(redoFurnStack[redoFurnStack.length - 1]);
+  const delta = redoFurnStack.pop();
   doc = JSON.parse(redoStack.pop()); normDoc();
+  _applyFurnDelta(delta, 'redo');
   sel = null; rebuild(); refreshProps(); flash('已重做', 'success'); syncUndoButtons();
 }
 
@@ -2496,12 +2915,46 @@ async function switchToEntry(id, preParsed) {
   sel = null;
   currentFileId = entry.id;
   currentHandle = entry._handle || null;
+  // 跨文件切换:全清全局渲染缓存,防 A 文件的家具 Group 残留到 B 文件(即使 doc.furniture 已覆盖)
+  _resetDocScopedCaches();
   rebuild(); refreshProps();
   _syncTopbarKb();
   _clearAutosaveDraft();         // 切到新文档,清旧草稿
   markUnsaved(false);
   renderFilesPanel();
   toast('已打开:' + entry.name, 'success', 1400);
+}
+// 跨文档重置：清掉所有挂在 planGroup/_wallNodeByWi/_furnShadowByFi/contact shadow 实例化上的旧 entry
+// —— 防「上一文件的家具混入当前文件」泄漏。FURN catalog / GLB cache 是跨文档共享的,这里不动。
+function _resetDocScopedCaches() {
+  // 1. planGroup 全清：墙/楼梯/地面/家具/contact shadow 全部重建;helper 节点保留
+  for (const child of [...planGroup.children]) {
+    const keep = child === _contactShadowGroup
+      || (child.userData && child.userData.keepAcrossDocs)
+      || /^(_underlay|grid|ground|helper|axis)/i.test(child.name || '');
+    if (!keep) planGroup.remove(child);
+  }
+  // 2. dispose 残留 group 内部的 GLB 引用（共享 GLB cache 仍存在,所以 _disposeGroupChildren 内置 __glbShared 跳过）
+  // 由 rebuild3D 的 _pruneMap 接管具体 dispose
+  furnitureGroups.length = 0;
+  if (typeof _stairNodeBySi !== 'undefined') _stairNodeBySi.clear();
+  if (typeof _floorNodeByFi !== 'undefined') _floorNodeByFi.clear();
+  if (typeof _wallNodeByWi !== 'undefined') _wallNodeByWi.clear();   // 包含 'furn:*' 等带前缀的旧 entry
+  // contact shadow 实例化缓存(planGroup._contactShadowGroup 也清掉,rebuild 时 _refreshContactShadows 会重建)
+  if (typeof _contactShadowInstByKey !== 'undefined') {
+    for (const [, info] of _contactShadowInstByKey) {
+      _contactShadowGroup.remove(info.mesh);
+      info.mesh.dispose();
+    }
+    _contactShadowInstByKey.clear();
+    _contactShadowGroup.userData.bucketsHash = null;  // 强制下次 _refreshContactShadows 重建
+  }
+  if (typeof _furnShadowByFi !== 'undefined') _furnShadowByFi.clear();
+  pickMeshes.length = 0;
+  floorMeshes.length = 0;
+  stairGroups.length = 0;
+  _geomDirty = true;        // 切换后第一帧必重烘焙阴影
+  _rebuildCount = (_rebuildCount || 0) + 1;
 }
 async function _confirmDiscardUnsaved() {
   if (!unsaved) return true;
@@ -3004,10 +3457,16 @@ async function importPlanHtmlFile(file) {
   return importPlanFromText(text, file.name);
 }
 
-function importPlanHtml() {
+async function importPlanHtml() {
   // 若当前文档有未保存修改,先确认
   if (typeof _hasUnsaved === 'function' && _hasUnsaved()) {
-    if (!confirm('当前文档有未保存修改,导入外部 HTML 将覆盖它。继续?')) return;
+    const ok = await ui.confirm({
+      title: '未保存的修改',
+      body: '<div class="note">当前文档有未保存修改,导入外部 HTML 将覆盖它。是否继续?</div>',
+      confirmText: '继续导入',
+      danger: true,
+    });
+    if (!ok) return;
   }
   const inp = document.createElement('input');
   inp.type = 'file';
@@ -3023,25 +3482,13 @@ function importPlanHtml() {
 }
 
 // ── AI 转换外部 3D HTML ───────────────────────────────────────
-// 浏览器端直接调 minimaxi 的 Anthropic Messages API 兼容反代
-// (TODO 上线前: key 移到后端代理或用户本地设置)
+// 通过后端 /api/ai/chat 代理调用 MiniMax API，密钥留在本地不暴露
 async function _aiCallClaude({ system, user, max_tokens = 8192 }) {
-  const url = 'https://api.minimaxi.com/anthropic/v1/messages';
-  const headers = {
-    'content-type': 'application/json',
-    'x-api-key': 'sk-cp-PUYHH6AHVJ97o5GLyBAHOo9zYxVboopS3y6bHm41zyTIsZNvjAb1tFafBq0WgYIoImszU_8ICoZZNuuGG5hf4xaQWnoIvbaM0ljbcDCSpf7_b3_sgqrR2mw',
-    'anthropic-version': '2023-06-01',
-    'anthropic-dangerous-direct-browser-access': 'true',
-  };
-  const resp = await fetch(url, {
-    method: 'POST', headers,
-    body: JSON.stringify({
-      model: 'MiniMax-M2.7',
-      max_tokens,
-      stream: true,
-      system: [{ type: 'text', text: system }],
-      messages: [{ role: 'user', content: user }],
-    }),
+  // 密钥已移至后端 _serve.py，前端不再持有任何 API Key
+  const resp = await fetch('/api/ai/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ system, user, max_tokens }),
   });
   if (!resp.ok) {
     const t = await resp.text().catch(() => '');
@@ -3075,7 +3522,13 @@ async function _aiCallClaude({ system, user, max_tokens = 8192 }) {
 
 async function importPlanHtmlFromAI() {
   if (typeof _hasUnsaved === 'function' && _hasUnsaved()) {
-    if (!confirm('当前文档有未保存修改,AI 转换将覆盖它。继续?')) return;
+    const ok = await ui.confirm({
+      title: '未保存的修改',
+      body: '<div class="note">当前文档有未保存修改,AI 转换将覆盖它。是否继续?</div>',
+      confirmText: '继续转换',
+      danger: true,
+    });
+    if (!ok) return;
   }
   const inp = document.createElement('input');
   inp.type = 'file';
@@ -3183,7 +3636,7 @@ ${jsCode}
   bed,bed1,wardrobe,nightstand,desk,shelf,sofa,tea,dining,toilet,basin,fridge,diningChair,officeChair,
   officeTable,glbDesk,couchMed,couchSm,lounge,meetingTable,coffeeTable,table,closet,dresser,tvFlat,
   tvStand,computer,glbSofa,sofaBlack,sofaRow3,stool,coatRack,waitingChair,cabinetWhite,woodCabinet,
-  woodPcDesk,woodBedside,bedHeadScreen,bedsideScreen,glbShelf,books,bookshelf,picture,rectangularCarpet,
+  woodPcDesk,woodBedside,glbShelf,books,bookshelf,picture,rectangularCarpet,
   rectangularMirror,roundCarpet,roundMirror,wallArt06,wineBottle,laundryBag,firTree,bush,cactus,column,
   fence,hedge,highFence,hydrant,indoorPlant,lowFence,mediumFence,palm,parkingSpot,pillar,pottedWhite,
   smallIndoorPlant,tree,ceilFan,ceilLamp,ceilingLight,floorLamp,tableLamp,stove,microwave,washer,kitchen,
@@ -3200,7 +3653,7 @@ ${jsCode}
     catch (e) {
       tip.close?.();
       const msg = /Failed to fetch|NetworkError|CORS/i.test(e.message)
-        ? 'AI 接口跨域被拒或网络中断。可能原因:① minimaxi 未开放浏览器跨域;② 网络问题。请联系作者或自备本地反代服务。'
+        ? '后端 API 连接失败。请确认 _serve.py 已启动（端口 8137 或 8765）。'
         : 'AI 调用失败: ' + e.message;
       return flash(msg, 'error', 7000);
     }
@@ -3270,6 +3723,46 @@ async function _measureModelBytes(buf) {
     h: +(b.max.y - b.min.y).toFixed(4),
   };
 }
+globalThis._measureModelBytes = _measureModelBytes;  // smoke 用
+// 通用导入 GLB 入库：被 importModelFile 与 openAiFurniture 复用
+async function _commitImportedGLB(opts) {
+  // opts: { buf, file, name, cat, icon, scale, yOff, measured }
+  const { buf, file, name, cat, icon, scale, yOff = 0, measured } = opts;
+  const w = +(measured.w * scale).toFixed(3);
+  const d = +(measured.d * scale).toFixed(3);
+  const h = +(measured.h * scale).toFixed(3);
+  const id = 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  try {
+    await assetPut(id, { id, name, fileName: file.name || '', bytes: buf, addedAt: Date.now() });
+  } catch (e) {
+    toast('写入本地数据库失败：' + (e?.message || e), 'error', 6000);
+    return null;
+  }
+  let dirStored = false;
+  let diskFileName = '';
+  if (DIR_PICKER_SUPPORT) {
+    try {
+      const fname = await _writeAssetToDisk(id, buf);
+      if (fname) { dirStored = true; diskFileName = fname; }
+    } catch (e) {
+      if (e && e.name !== 'AbortError') {
+        toast('磁盘写入失败,模型仍保存在本机数据库: ' + (e?.message || e), 'warn', 4000);
+      }
+    }
+  }
+  const meta = { id, name, cat, icon: icon || '📦', w, d, h, scale, yOff, fileName: dirStored ? diskFileName : (file.name || ''), dirStored };
+  pushUndo();
+  doc.assets.push(meta);
+  _registerCustomAssetsFromDoc();
+  await loadGLBFromBytes(CUSTOM_PREFIX + id, buf).catch(() => {});
+  furnType = CUSTOM_PREFIX + id; furnRot = 0; clearGhost();
+  rebuild(); refreshProps(); markUnsaved(true);
+  _syncAssetDirKb();
+  const where = DIR_PICKER_SUPPORT && dirStored ? ' 已同步到磁盘目录' : (DIR_PICKER_SUPPORT ? ' 仅保存在本机数据库' : '');
+  toast(`已导入「${name}」（${w.toFixed(2)} × ${d.toFixed(2)} × ${h.toFixed(2)} m）${where}`, 'success', 3600);
+  return meta;
+}
+
 async function importModelFile(file) {
   let buf;
   try { buf = await file.arrayBuffer(); }
@@ -3294,7 +3787,7 @@ async function importModelFile(file) {
   const dirHint = DIR_PICKER_SUPPORT
     ? (dirConfigured
         ? `<div class="note" style="color:var(--accent)">✓ 模型将保存到磁盘目录「${_assetDirDisplayName()}」,并同时保存在本机数据库(快速加载)</div>`
-        : `<div class="note" style="color:#c2410c">⚠️ 尚未设置模型保存目录 —— 导入的模型只会保存到本机浏览器数据库,不能跟项目文件夹一起拷贝走</div>`)
+        : `<div class="note note-warn">⚠️ 尚未设置模型保存目录 —— 导入的模型只会保存到本机浏览器数据库,不能跟项目文件夹一起拷贝走</div>`)
     : `<div class="note">当前浏览器不支持将模型保存到磁盘,只会保存在本机数据库</div>`;
   tpDialog('导入 3D 模型', `
     <div class="frow"><label>名称</label><input id="imName" type="text" value="${baseName.replace(/"/g, '&quot;')}" style="flex:1"></div>
@@ -3306,43 +3799,15 @@ async function importModelFile(file) {
       { t: '取消' },
       {
         t: '导入',
-        fn: async () => {
-          const name = (document.getElementById('imName')?.value || baseName).trim() || baseName;
-          const cat = document.getElementById('imCat')?.value || 'custom';
-          const scale = parseFloat(document.getElementById('imScale')?.value) || 1;
-          const w = +(measured.w * scale).toFixed(3);
-          const d = +(measured.d * scale).toFixed(3);
-          const h = +(measured.h * scale).toFixed(3);
-          const id = 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-          try {
-            await assetPut(id, { id, name, fileName: file.name || '', bytes: buf, addedAt: Date.now() });
-          } catch (e) {
-            return toast('写入本地数据库失败：' + (e?.message || e), 'error', 6000);
-          }
-          // 尝试写到磁盘(失败不阻断 —— IDB 已经有了,降级无感)
-          let dirStored = false;
-          let diskFileName = '';
-          if (DIR_PICKER_SUPPORT) {
-            try {
-              const fname = await _writeAssetToDisk(id, buf);
-              if (fname) { dirStored = true; diskFileName = fname; }
-            } catch (e) {
-              if (e && e.name !== 'AbortError') {
-                toast('磁盘写入失败,模型仍保存在本机数据库: ' + (e?.message || e), 'warn', 4000);
-              }
-            }
-          }
-          const meta = { id, name, cat, icon: '📦', w, d, h, scale, yOff: 0, fileName: dirStored ? diskFileName : (file.name || ''), dirStored };
-          pushUndo();
-          doc.assets.push(meta);
-          _registerCustomAssetsFromDoc();
-          await loadGLBFromBytes(CUSTOM_PREFIX + id, buf).catch(() => {});
-          furnType = CUSTOM_PREFIX + id; furnRot = 0; clearGhost();
-          rebuild(); refreshProps(); markUnsaved(true);
-          _syncAssetDirKb();
-          const where = DIR_PICKER_SUPPORT && dirStored ? ' 已同步到磁盘目录' : (DIR_PICKER_SUPPORT ? ' 仅保存在本机数据库' : '');
-          toast(`已导入「${name}」（${w.toFixed(2)} × ${d.toFixed(2)} × ${h.toFixed(2)} m）${where}`, 'success', 3600);
-        },
+        fn: () => _commitImportedGLB({
+          buf, file,
+          name: (document.getElementById('imName')?.value || baseName).trim() || baseName,
+          cat: document.getElementById('imCat')?.value || 'custom',
+          icon: '📦',
+          scale: parseFloat(document.getElementById('imScale')?.value) || 1,
+          yOff: 0,
+          measured,
+        }),
       },
     ]);
   // 实时预览换算后的尺寸
@@ -3380,6 +3845,7 @@ function deleteCustomAsset(id) {
         }));
         rebuild(); refreshProps(); markUnsaved(true);
         toast(`已删除「${meta.name}」`, 'success');
+        if (typeof renderModelsPanel === 'function' && _panelTabs && _panelTabs.active === 'models') renderModelsPanel();
       } },
     ]);
 }
@@ -4118,16 +4584,6 @@ function fWheelchair() {
     addLocal(g, box(0.04, 0.3, 0.4), M.dark, sx * 0.25, 0.65, 0, false);
   return g;
 }
-function fIVStand() {
-  const g = new THREE.Group();
-  addLocal(g, new THREE.CylinderGeometry(0.25, 0.25, 0.04, 16), M.dark, 0, 0.02, 0);
-  addLocal(g, new THREE.CylinderGeometry(0.03, 0.03, 1.8, 8), M.metal, 0, 0.92, 0);
-  addLocal(g, new THREE.CylinderGeometry(0.15, 0.15, 0.02, 12), M.metal, 0, 1.85, 0, false);
-  for (const sx of [-1, 1])
-    addLocal(g, box(0.02, 0.1, 0.02), M.metal, sx * 0.1, 1.9, 0, false);
-  addLocal(g, rbox(0.12, 0.25, 0.06, 0.01), M.white, 0, 1.7, 0, false);
-  return g;
-}
 function fHospitalBed() {
   const g = new THREE.Group();
   addLocal(g, rbox(1.0, 0.3, 2.1, 0.02), M.gray, 0, 0.45, 0);
@@ -4409,25 +4865,6 @@ function fAnesthesiaMachine() {
     addLocal(g, new THREE.CylinderGeometry(0.04, 0.04, 0.03, 10), M.dark, sx, 0.03, sz);
   return g;
 }
-function fInfusionPump() {
-  const g = new THREE.Group();
-  // 泵体
-  addLocal(g, rbox(0.32, 0.42, 0.34, 0.02), M.white, 0, 0.35, 0);
-  // 显示屏
-  addLocal(g, box(0.22, 0.14, 0.03), M.dark, 0, 0.4, 0.18);
-  addLocal(g, box(0.16, 0.08, 0.02), M.medGreen, 0, 0.4, 0.19, false);
-  // 门锁扣
-  addLocal(g, box(0.04, 0.3, 0.04), M.gray, 0.12, 0.42, 0.18);
-  // 输液管 + 输液瓶
-  addLocal(g, new THREE.CylinderGeometry(0.012, 0.012, 0.5, 6), M.dark, 0, 0.75, 0.1);
-  addLocal(g, new THREE.CylinderGeometry(0.06, 0.05, 0.18, 12), M.glass, 0, 0.9, 0.1);
-  addLocal(g, new THREE.CylinderGeometry(0.02, 0.02, 0.08, 8), M.gray, 0, 1.0, 0.1);
-  // 顶部挂钩
-  addLocal(g, new THREE.TorusGeometry(0.05, 0.015, 6, 12), M.metal, 0, 1.05, 0.1);
-  // 底脚
-  for (const sx of [-0.12, 0.12]) addLocal(g, new THREE.CylinderGeometry(0.03, 0.03, 0.03, 8), M.dark, sx, 0.02, 0.12);
-  return g;
-}
 function fFirstAidKit() {
   const g = new THREE.Group();
   // 带提手的急救箱箱体
@@ -4638,6 +5075,14 @@ const FURN = {
   basin:     { cat: 'bath',     name: '洗手台',         icon: '🚰', w: 0.5,  d: 0.4,  build: fBasin },
   fridge:    { cat: 'kitchen',  name: '冰箱',           icon: '🧊', w: 0.65, d: 0.65, build: fFridge },
 
+  // ── 高质量 PBR 家具（Poly Haven CC0 + Khronos CC BY 4.0）──
+  // 来自 openfloorplan-main，提供 baseColor + normal + roughness 贴图，质量高于参考程序的纯 GLB
+  // GlamVelvetSofa 需在 README 注明：CC BY 4.0 © 2021 Wayfair LLC（Eric Chadwick）
+  glamVelvetSofa:    { cat: 'furn', name: '绒面沙发(PBR)',   icon: '🛋', w: 2.10, d: 0.95, h: 0.85, file: 'glam-velvet-sofa',    build: glbBuild('glam-velvet-sofa') },
+  modernCoffeeTable: { cat: 'furn', name: '石材茶几(PBR)',   icon: '☕', w: 1.30, d: 1.30, h: 0.49, file: 'modern-coffee-table', build: glbBuild('modern-coffee-table') },
+  modernArmchair:    { cat: 'furn', name: '绒面扶手椅(PBR)', icon: '🪑', w: 0.82, d: 1.12, h: 0.87, file: 'modern-armchair',     build: glbBuild('modern-armchair') },
+  modernCabinet:     { cat: 'furn', name: '木柜(PBR)',       icon: '🗄', w: 2.44, d: 0.54, h: 0.68, file: 'modern-cabinet',      build: glbBuild('modern-cabinet') },
+
   // ── 参考程序移植的 GLB 模型（Pascal Editor，MIT）──
   // w/d = 实际占地面积（米），h = 模型离地高度
   // scale = 模型内部单位→米的换算（>1 表示源模型偏小，需放大）
@@ -4666,7 +5111,35 @@ const FURN = {
   floorLamp:      { cat: 'light',   name: '落地灯',         icon: '🪔', w: 0.70, d: 0.68, h: 1.85, file: 'floor-lamp',     build: glbBuild('floor-lamp') },
   tableLamp:      { cat: 'light',   name: '台灯',           icon: '🪔', w: 0.29, d: 0.66, h: 0.73, file: 'table-lamp',     build: glbBuild('table-lamp') },
   acBlock             : { name: '空调外机块', icon: '❄', cat: 'hvac', w: 1.33, d: 1.33, h: 1.20, file: 'ac-block', build: glbBuild('ac-block') },
-  airConditioner      : { name: '挂壁空调', icon: '❄', cat: 'hvac', w: 1000.00, d: 139.14, h: 243.19, file: 'air-conditioner', scale: 0.01, build: glbBuild('air-conditioner') },  // ⚠size>5m
+  // ── 2026-10-06 新加:医疗/通用家具（来自 D:\参数化建模模型通用, 已 Draco 压缩 ≤3MB）──
+  // license: 见 libs/items/<name>/license.txt（原 zip 里的 license.txt，CC BY/CC0 各异）
+  // scale 字段用于把源模型从 mm/cm 缩放到米
+  hospitalDoor:           { name: '医院门',  icon: '🚪', cat: 'door',     w: 0.71, d: 0.19, h: 1.23, file: 'hospital-door',           scale: 0.001, build: glbBuild('hospital-door') },
+  hospitalBench:          { name: '候诊长凳', icon: '🪑', cat: 'furn',     w: 1.15, d: 1.15, h: 0.26, file: 'hospital-bench',          scale: 0.3,   build: glbBuild('hospital-bench') },
+  hospitalSharpsBox:      { name: '锐器盒',  icon: '🗑', cat: 'medical',  w: 0.15, d: 0.15, h: 0.21, file: 'hospital-sharps-container', scale: 1,   build: glbBuild('hospital-sharps-container') },
+  pulseOximeter:          { name: '血氧仪',  icon: '🩺', cat: 'medical',  w: 0.92, d: 0.49, h: 0.47, file: 'pulse-oximeter',          scale: 1,     build: glbBuild('pulse-oximeter') },
+  medicalExamLamp:        { name: '检查灯',  icon: '💡', cat: 'light',    w: 0.24, d: 0.23, h: 0.67, file: 'medical-exam-lamp',       scale: 0.01,  build: glbBuild('medical-exam-lamp') },
+  hospitalBedPbr:         { name: '医院病床', icon: '🛏', cat: 'bed',      w: 1.14, d: 2.13, h: 0.96, file: 'hospital-bed',            scale: 0.13,  build: glbBuild('hospital-bed') },
+  modernTablePbr:         { name: '现代桌子', icon: '🍽', cat: 'furn',     w: 2.08, d: 1.29, h: 1.15, file: 'modern-table',            scale: 1,     build: glbBuild('modern-table') },
+  aveiroCabinet:          { name: '橡木边柜', icon: '🗄', cat: 'furn',     w: 0.67, d: 0.67, h: 0.24, file: 'aveiro-cabinet',          scale: 0.002, build: glbBuild('aveiro-cabinet') },
+  hospitalBedsideCabinet: { name: '床头柜',  icon: '🗄', cat: 'furn',     w: 1.18, d: 0.99, h: 1.74, file: 'hospital-bedside-cabinet', scale: 0.05, build: glbBuild('hospital-bedside-cabinet') },
+  hospitalExamChair:      { name: '检查椅',  icon: '🪑', cat: 'furn',     w: 1.73, d: 1.41, h: 1.74, file: 'hospital-exam-chair',     scale: 0.05,  build: glbBuild('hospital-exam-chair') },
+  hospitalMedicineCabinet:{ name: '药品柜',  icon: '🗄', cat: 'furn',     w: 1.82, d: 0.50, h: 1.76, file: 'hospital-medicine-cabinet', scale: 0.025, build: glbBuild('hospital-medicine-cabinet') },
+  airConditioner          : { name: '挂壁空调', icon: '❄', cat: 'hvac', w: 0.89, d: 0.20, h: 0.29, file: 'air-conditioner', scale: 1, build: glbBuild('air-conditioner') },  // 修复 w=1000 bug + 用 D:\参数化建模模型通用 提供的 GLB
+  // ── 2026-10-06 第二批:从整房间 zip 里拆出的单 mesh 家具 ──
+  // 流程:_tools/_split_gltf.mjs 把 scene.gltf 按叶节点拆成单 mesh GLB,
+  //      PIL 缩 textures 到 1024px → Draco 压缩 → 入库
+  // Object_NN 是 Sketchfab 原始命名,尺寸来自实测(scale=1)
+  medicalSurgicalCart     : { name: '手术推车', icon: '🩺', cat: 'medical', w: 2.09, d: 1.20, h: 2.43, file: 'medical-surgical-cart',     scale: 1, build: glbBuild('medical-surgical-cart') },
+  medicalEquipment25      : { name: '检查床',   icon: '🛏', cat: 'medical', w: 2.01, d: 0.82, h: 0.69, file: 'medical-equipment-25',      scale: 1, build: glbBuild('medical-equipment-25') },
+  medicalEquipment19      : { name: '手术台',   icon: '🛏', cat: 'medical', w: 2.01, d: 1.08, h: 1.41, file: 'medical-equipment-19',      scale: 1, build: glbBuild('medical-equipment-19') },
+  medicalEquipment26      : { name: '器械柜',   icon: '🗄', cat: 'medical', w: 1.39, d: 0.72, h: 0.81, file: 'medical-equipment-26',      scale: 1, build: glbBuild('medical-equipment-26') },
+  medicalEquipment8       : { name: '小推车',   icon: '🩺', cat: 'medical', w: 0.60, d: 0.58, h: 0.69, file: 'medical-equipment-8',       scale: 1, build: glbBuild('medical-equipment-8') },
+  medicalEquipment43      : { name: '大柜',     icon: '🗄', cat: 'medical', w: 1.27, d: 1.97, h: 1.58, file: 'medical-equipment-43',      scale: 1, build: glbBuild('medical-equipment-43') },
+  medicalEquipment20      : { name: '大型设备', icon: '🩺', cat: 'medical', w: 2.17, d: 1.26, h: 1.80, file: 'medical-equipment-20',      scale: 1, build: glbBuild('medical-equipment-20') },
+  medicalEquipment9       : { name: '凳',       icon: '🪑', cat: 'medical', w: 0.60, d: 0.57, h: 0.68, file: 'medical-equipment-9',       scale: 1, build: glbBuild('medical-equipment-9') },
+  medicalEquipment7       : { name: '床头柜',   icon: '🗄', cat: 'medical', w: 0.58, d: 0.55, h: 0.64, file: 'medical-equipment-7',       scale: 1, build: glbBuild('medical-equipment-7') },
+  medicalEquipment41      : { name: '屏风',     icon: '🪟', cat: 'medical', w: 0.86, d: 1.79, h: 1.34, file: 'medical-equipment-41',      scale: 1, build: glbBuild('medical-equipment-41') },
   airConditionerBlock : { name: '空调方块', icon: '❄', cat: 'hvac', w: 1.04, d: 0.77, h: 0.69, file: 'air-conditioner-block', build: glbBuild('air-conditioner-block') },
   airConditioning     : { name: '中央空调', icon: '❄', cat: 'hvac', w: 1.55, d: 0.40, h: 0.60, file: 'air-conditioning', build: glbBuild('air-conditioning') },
   alarmKeypad         : { name: '报警键盘', icon: '🔐', cat: 'safety', w: 0.18, d: 0.12, h: 0.02, file: 'alarm-keypad', build: glbBuild('alarm-keypad') },
@@ -4775,10 +5248,8 @@ const FURN = {
 
   // ── fac/ 70 个医疗/办公/标识 专用模型（中文源 → ASCII slug）──
   medPda                : { name: '医疗 PDA', icon: '📱', cat: 'medical', w: 0.077, d: 0.02, h: 0.163, file: 'pda-handheld', build: glbBuild('pda-handheld') },
-  medCallBtn            : { name: '一键呼叫按钮', icon: '🆘', cat: 'medical', w: 0.086, d: 0.2, h: 0.016, file: 'call-button', build: glbBuild('call-button') },
   glbIronStair          : { name: '铁扶手楼梯', icon: '🪜', cat: 'stairs', w: 7.945, d: 3.65, h: 3.753, file: 'iron-railing-stair', build: glbBuild('iron-railing-stair') },
   meetingTable          : { name: '会议桌', icon: '🗄', cat: 'furn', w: 5.152, d: 2.181, h: 0.986, file: 'meeting-table', build: glbBuild('meeting-table') },
-  medTempTag            : { name: '体温标签', icon: '🌡', cat: 'medical', w: 0.037, d: 0.009, h: 0.037, file: 'temp-tag-qr', build: glbBuild('temp-tag-qr') },
   medFridge             : { name: '医用冰箱', icon: '🧊', cat: 'kitchen', w: 1.071, d: 1.342, h: 1.815, file: 'fridge-1', build: glbBuild('fridge-1') },
   medOutflowSens        : { name: '出液传感器', icon: '💧', cat: 'medical', w: 0.072, d: 0.025, h: 0.066, file: 'outflow-sensor', build: glbBuild('outflow-sensor') },
   officeChairBlk        : { name: '办公椅(黑)', icon: '🪑', cat: 'furn', w: 0.604, d: 0.63, h: 0.801, file: 'office-chair-black', build: glbBuild('office-chair-black') },
@@ -4791,33 +5262,21 @@ const FURN = {
   stoolGreen            : { name: '圆凳(绿)', icon: '🪑', cat: 'furn', w: 0.579, d: 0.556, h: 0.849, file: 'stool-green', build: glbBuild('stool-green') },
   wallStruct            : { name: '墙体结构', icon: '🧱', cat: 'other', w: 0.557, d: 0.203, h: 0.03, file: 'wall-structure', scale: 0.01, build: glbBuild('wall-structure') },
   marbleTeaTable        : { name: '大理石茶桌', icon: '☕', cat: 'furn', w: 0.835, d: 2.026, h: 0.355, file: 'marble-tea-table', build: glbBuild('marble-tea-table') },
-  medBabyTag            : { name: '婴儿标签', icon: '👶', cat: 'medical', w: 0.027, d: 0.012, h: 0.033, file: 'baby-tag', build: glbBuild('baby-tag') },
   navSplitLR            : { name: '左右分流标识', icon: '↔', cat: 'other', w: 0.424, d: 0.019, h: 0.184, file: 'split-lr', build: glbBuild('split-lr') },
-  bedHeadScreen         : { name: '床头屏', icon: '📺', cat: 'furn', w: 0.388, d: 0.046, h: 0.154, file: 'bed-head-screen', build: glbBuild('bed-head-screen') },
-  bedsideScreen         : { name: '床旁屏', icon: '📺', cat: 'furn', w: 0.38, d: 0.03, h: 0.266, file: 'bedside-screen', build: glbBuild('bedside-screen') },
   greenPillow           : { name: '绿色枕头', icon: '🛏', cat: 'bed', w: 1.986, d: 0.764, h: 0.497, file: 'green-pillow', build: glbBuild('green-pillow') },
   medEcg                : { name: '心电监护仪', icon: '💓', cat: 'medical', w: 0.454, d: 0.256, h: 0.414, file: 'ecg-monitor', build: glbBuild('ecg-monitor') },
   medSurgTbl            : { name: '手术台', icon: '🛏', cat: 'medical', w: 2.099, d: 1.028, h: 1.034, file: 'surgery-table', build: glbBuild('surgery-table') },
   medSurgArm            : { name: '手术机械臂', icon: '🤖', cat: 'medical', w: 1.697, d: 1.338, h: 2.412, file: 'surgery-arm', build: glbBuild('surgery-arm') },
   medSurgArmLight       : { name: '手术机械臂灯', icon: '💡', cat: 'medical', w: 2.573, d: 3.16, h: 2.564, file: 'surgery-arm-light', build: glbBuild('surgery-arm-light') },
   medSurgLight          : { name: '手术灯', icon: '💡', cat: 'medical', w: 2.421, d: 2.7, h: 1.962, file: 'surgery-light', build: glbBuild('surgery-light') },
-  nurseStation          : { name: '护士站', icon: '🏥', cat: 'furn', w: 1.856, d: 3.703, h: 1.127, file: 'nurse-station', build: glbBuild('nurse-station') },
-  nurseStationPC        : { name: '护士站主机', icon: '🖥', cat: 'furn', w: 0.433, d: 0.231, h: 0.072, file: 'nurse-station-pc', build: glbBuild('nurse-station-pc') },
   medWashSens           : { name: '按压洗手传感器', icon: '🧼', cat: 'medical', w: 0.064, d: 0.08, h: 0.039, file: 'press-wash-sensor', build: glbBuild('press-wash-sensor') },
-  medFallRadar          : { name: '摔倒监测雷达', icon: '📡', cat: 'medical', w: 0.102, d: 0.102, h: 0.043, file: 'fall-radar', build: glbBuild('fall-radar') },
   cabinetWhite          : { name: '文件柜(白)', icon: '🗄', cat: 'furn', w: 1.84, d: 0.4, h: 2, file: 'filing-cabinet-white', build: glbBuild('filing-cabinet-white') },
-  screenOnco            : { name: '昂科门口屏', icon: '📺', cat: 'media', w: 0.226, d: 0.028, h: 0.424, file: 'onco-door-screen', build: glbBuild('onco-door-screen') },
-  medPullTag            : { name: '易拉扣标签', icon: '🏷', cat: 'medical', w: 0.032, d: 0.024, h: 0.034, file: 'pull-tab-tag', build: glbBuild('pull-tab-tag') },
-  medSmartMattress      : { name: '智能床垫', icon: '🛏', cat: 'bed', w: 0.29, d: 1.105, h: 0.024, file: 'smart-mattress', build: glbBuild('smart-mattress') },
-  medWristTag           : { name: '智能腕式标签', icon: '⌚', cat: 'medical', w: 0.024, d: 0.104, h: 0.146, file: 'wristband-tag', build: glbBuild('wristband-tag') },
   woodCabinet1          : { name: '木纹单柜', icon: '🪑', cat: 'furn', w: 1.145, d: 0.4, h: 1.2, file: 'wood-single-cabinet', build: glbBuild('wood-single-cabinet') },
   woodBedside           : { name: '木纹床头柜', icon: '🪑', cat: 'bed', w: 0.328, d: 0.361, h: 0.376, file: 'wood-bedside', build: glbBuild('wood-bedside') },
   woodCabinet           : { name: '木纹柜', icon: '🪑', cat: 'furn', w: 0.705, d: 0.37, h: 1.146, file: 'wood-cabinet', build: glbBuild('wood-cabinet') },
   woodPcDesk            : { name: '木纹电脑桌', icon: '🖥', cat: 'furn', w: 1.915, d: 0.6, h: 1.099, file: 'wood-pc-desk', build: glbBuild('wood-pc-desk') },
   woodCabSet            : { name: '木纹组柜', icon: '🪑', cat: 'furn', w: 3, d: 0.45, h: 0.814, file: 'wood-cabinet-set', build: glbBuild('wood-cabinet-set') },
   glbStair              : { name: '楼梯', icon: '🪜', cat: 'stairs', w: 3.525, d: 7.048, h: 3.753, file: 'stair', build: glbBuild('stair') },
-  medMomTag             : { name: '母亲标签', icon: '👩', cat: 'medical', w: 0.03, d: 0.013, h: 0.042, file: 'mom-tag', build: glbBuild('mom-tag') },
-  medMomBabyTag         : { name: '母婴标签', icon: '👶', cat: 'medical', w: 0.03, d: 0.013, h: 0.042, file: 'mom-baby-tag', build: glbBuild('mom-baby-tag') },
   medTempHumid          : { name: '温湿度传感器', icon: '🌡', cat: 'medical', w: 0.065, d: 0.039, h: 0.117, file: 'temp-humid-sensor', build: glbBuild('temp-humid-sensor') },
   medEnvMon             : { name: '环境监测终端', icon: '🌡', cat: 'medical', w: 0.112, d: 0.112, h: 0.033, file: 'env-monitor', build: glbBuild('env-monitor') },
   pcBlack               : { name: '黑色电脑', icon: '💻', cat: 'media', w: 1.14, d: 0.651, h: 0.668, file: 'pc-black', build: glbBuild('pc-black') },
@@ -4828,18 +5287,8 @@ const FURN = {
   medGateway            : { name: '监护网关', icon: '📡', cat: 'medical', w: 0.065, d: 0.065, h: 0.021, file: 'monitor-gateway', build: glbBuild('monitor-gateway') },
   waitingChair          : { name: '等候区座椅', icon: '🪑', cat: 'furn', w: 1.501, d: 0.537, h: 0.581, file: 'waiting-chair', build: glbBuild('waiting-chair') },
   sofaRow3              : { name: '联排沙发(3人)', icon: '🛋', cat: 'furn', w: 0.837, d: 2.044, h: 0.714, file: 'sofa-row-3', build: glbBuild('sofa-row-3') },
-  medChestTag           : { name: '胸卡标签', icon: '🏷', cat: 'medical', w: 0.055, d: 0.005, h: 0.086, file: 'chest-tag', build: glbBuild('chest-tag') },
   showerBath            : { name: '花洒浴室', icon: '🚿', cat: 'bath', w: 0.819, d: 0.464, h: 1.733, file: 'shower-bath', build: glbBuild('shower-bath') },
-  medBleTag             : { name: '蓝牙定位标签', icon: '📡', cat: 'medical', w: 0.025, d: 0.012, h: 0.034, file: 'ble-tag', build: glbBuild('ble-tag') },
-  medAssetTag           : { name: '资产定位标签', icon: '🏷', cat: 'medical', w: 0.04, d: 0.011, h: 0.04, file: 'asset-tag', build: glbBuild('asset-tag') },
-  medAssetStateTag      : { name: '资产状态标签', icon: '🏷', cat: 'medical', w: 0.05, d: 0.05, h: 0.015, file: 'asset-state-tag', build: glbBuild('asset-state-tag') },
-  screenCorridor        : { name: '走廊屏', icon: '📺', cat: 'media', w: 0.724, d: 0.181, h: 0.232, file: 'corridor-screen', build: glbBuild('corridor-screen') },
-  medCryoTag            : { name: '超低温标签', icon: '🥶', cat: 'medical', w: 0.067, d: 0.039, h: 0.089, file: 'cryo-tag', build: glbBuild('cryo-tag') },
   squatToilet           : { name: '蹲便器', icon: '🚽', cat: 'bath', w: 0.375, d: 0.488, h: 0.028, file: 'squat-toilet', build: glbBuild('squat-toilet') },
-  medIvPole             : { name: '输液杆', icon: '💉', cat: 'medical', w: 0.587, d: 0.583, h: 2.239, file: 'iv-pole', build: glbBuild('iv-pole') },
-  medIvMonitor          : { name: '输液监视器', icon: '💉', cat: 'medical', w: 0.12, d: 0.036, h: 0.153, file: 'iv-monitor', build: glbBuild('iv-monitor') },
-  medIvEmpty            : { name: '输液空管检测器', icon: '💉', cat: 'medical', w: 0.06, d: 0.077, h: 0.027, file: 'iv-empty-detector', build: glbBuild('iv-empty-detector') },
-  screenDoor            : { name: '门口屏', icon: '📺', cat: 'media', w: 0.226, d: 0.028, h: 0.424, file: 'door-screen', build: glbBuild('door-screen') },
   medTamperBand         : { name: '防拆腕带', icon: '⌚', cat: 'medical', w: 0.036, d: 0.127, h: 0.202, file: 'tamper-wristband', build: glbBuild('tamper-wristband') },
   urinalCeramic         : { name: '陶瓷小便池', icon: '🚽', cat: 'bath', w: 0.265, d: 0.294, h: 0.916, file: 'urinal-ceramic', build: glbBuild('urinal-ceramic') },
   toiletLid             : { name: '马桶盖', icon: '🚽', cat: 'bath', w: 0.469, d: 0.924, h: 1.198, file: 'toilet-lid', build: glbBuild('toilet-lid') },
@@ -4879,7 +5328,6 @@ const FURN = {
   triageDesk     : { cat: 'medical', name: '分诊台',         icon: '🏥', w: 2.0,  d: 0.6,  build: fTriageDesk },
   medicineCabinet: { cat: 'medical', name: '药柜',           icon: '💊', w: 1.5,  d: 0.4,  build: fMedicineCabinet },
   wheelchair     : { cat: 'medical', name: '轮椅',           icon: '♿', w: 0.6,  d: 0.7,  build: fWheelchair },
-  ivStand        : { cat: 'medical', name: '输液架',         icon: '💉', w: 0.5,  d: 0.5,  build: fIVStand },
   hospitalBed    : { cat: 'medical', name: '病床',           icon: '🛏', w: 1.0,  d: 2.1,  build: fHospitalBed },
   stretcher      : { cat: 'medical', name: '担架',           icon: '🛏', w: 0.7,  d: 1.9,  build: fStretcher },
   medCart        : { cat: 'medical', name: '医疗推车',       icon: '🚑', w: 0.6,  d: 0.4,  build: fMedCart },
@@ -4899,7 +5347,6 @@ const FURN = {
   // ── 治疗 / 急救设备 ──
   defibrillator  : { cat: 'medical', name: '除颤仪',         icon: '⚡', w: 0.5,  d: 0.3,  build: fDefibrillator },
   anesthesiaMch  : { cat: 'medical', name: '麻醉机',         icon: '💨', w: 0.6,  d: 0.5,  build: fAnesthesiaMachine },
-  infusionPump   : { cat: 'medical', name: '输液泵',         icon: '💉', w: 0.35, d: 0.35, build: fInfusionPump },
   firstAidKit    : { cat: 'medical', name: '急救箱',         icon: '🆘', w: 0.45, d: 0.3,  build: fFirstAidKit },
   oxygenCart     : { cat: 'medical', name: '氧气瓶车',       icon: '🎈', w: 0.6,  d: 0.4,  build: fOxygenTankCart },
 
@@ -4933,11 +5380,11 @@ const NATIVE_INSTANCED_OK = new Set([
   'wardrobeOpen', 'dresserMirror',
   'workstation', 'receptionDesk', 'displayCabinet', 'meetingSet', 'officePartition',
   'filingCabinet', 'whiteboard', 'printerStand',
-  'signBoard', 'triageDesk', 'medicineCabinet', 'wheelchair', 'ivStand',
+  'signBoard', 'triageDesk', 'medicineCabinet', 'wheelchair',
   'hospitalBed', 'stretcher', 'medCart',
   'examBed', 'infantCrib', 'deliveryBed', 'icuBed', 'companionBed',
   'ctScanner', 'xrayMachine', 'ultrasound',
-  'defibrillator', 'anesthesiaMch', 'infusionPump', 'firstAidKit', 'oxygenCart',
+  'defibrillator', 'anesthesiaMch', 'firstAidKit', 'oxygenCart',
   'microscope', 'centrifuge', 'vitalsCart',
   'walker', 'mobileSurgLamp', 'chartCabinet', 'sanitizerStand'
   // 'shelf' excluded — fShelf 内部 Math.random() 书本数不固定,geometry 每帧都变
@@ -4960,6 +5407,12 @@ const furnBBox = {};
 function _captureFurnProto(type, buildFn) {
   const proto = { parts: [], bbox: null };
   const g = buildFn();
+  // 临时归零 root 的 position,因为 loadGLB 把 g.position.y 设成了 -box.min.y,
+  // 导致 setFromObject 算出的"世界 bbox"已经被抬到 min.y=0,会让我们错以为无需 shift。
+  // 这里要在 GLB 自己的"设计空间"里算 bbox(尚未被抬升),这样 shift 量才正确。
+  // 注:此处的 g 是 glbBuild 返回的 clone,改它的 position 不影响 _glbCache。
+  const _savedPos = g.position.clone();
+  g.position.set(0, 0, 0);
   g.updateMatrixWorld(true);
   const bbox = new THREE.Box3();
   g.traverse(o => {
@@ -4973,21 +5426,36 @@ function _captureFurnProto(type, buildFn) {
         cast: o.castShadow !== false,
         localMatrix: o.matrix.clone(),
       });
-      // 参与整体 bbox
-      const wb = new THREE.Box3().setFromObject(o);
-      bbox.union(wb);
+      // 用 mesh 的 LOCAL matrix(不是 world)算 bbox——
+      // 因为 InstancedMesh 用的是 o.matrix,而 dummy 还有自己的 scale(FURN.scale)。
+      // 如果用 world bbox 算 shift,会把父节点的 translation/scale 都减掉,导致
+      // dummy.scale * (shift + geo.y) ≠ 0,模型仍埋地。
+      // 正确做法:shift 量应该是 -(o.matrix * geo.bbox).min.y,这样
+      // dummy * (shift * o.matrix) * geo 的最低点 = dummy * 0 = 0。
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      const lb = new THREE.Box3().copy(o.geometry.boundingBox).applyMatrix4(o.matrix);
+      bbox.union(lb);
     }
   });
-  // 把 bbox 平移到原点 = bbox 中心,尺寸 = bbox 范围
-  const center = new THREE.Vector3();
+  // 恢复 root 的 position(虽然 clone 之后会被丢弃,但保持语义干净)
+  g.position.copy(_savedPos);
+  g.updateMatrixWorld(true);
+  // 把每个 part 的 localMatrix 减去 bbox 最小角(锚点改为"模型底面"而非中心)。
+  // 这样 InstancedMesh 的 instance y 位置 = 模型的底面 y 位置;f.y=0 表示
+  // "底面贴地",淋浴(高 2.06m)、壁挂电视(tvFlat)、医院病床等几何在地面以上。
+  // 修复背景:第一版用 setFromObject 算 world bbox,但 loadGLB 已把 root.position.y 抬到 -box.min.y,
+  // 导致 world bbox.min.y=0,shift 量=0,GLB 内 y<0 的 part 仍埋地;
+  // 第二版改为 o.matrix 算 local bbox,正确锚定在 InstancedMesh 内的 mesh 局部空间。
+  const min = bbox.min;
   const size = new THREE.Vector3();
-  bbox.getCenter(center);
   bbox.getSize(size);
-  // 把每个 part 的 localMatrix 减去 center(让所有 part 以 bbox 中心为参考)
   for (const part of proto.parts) {
-    const m = new THREE.Matrix4().makeTranslation(-center.x, -center.y, -center.z);
+    const m = new THREE.Matrix4().makeTranslation(-min.x, -min.y, -min.z);
     part.localMatrix.premultiply(m);
   }
+  // bbox 报告用 center(给 raycast / contact shadow 几何参考),但锚点语义改了
+  const center = new THREE.Vector3();
+  bbox.getCenter(center);
   proto.bbox = { center, size };
   return proto;
 }
@@ -5011,6 +5479,18 @@ function _ensureFurnInstanced(type) {
   }
   furnInstanced[type] = arr;
   return arr;
+}
+
+// GLB 内置模型家具也走 InstancedMesh 管线(与原生同架构):
+// 条件 = 有 file 字段、非用户自定义资产、GLB 已加载完成(空组会产出 0 part 的坏 proto)。
+// 未就绪时走 Group 兜底路径,加载完成后自动 rebuild 升级为实例化(见家具循环)。
+function _furnInstancedEligible(type) {
+  if (NATIVE_INSTANCED_OK.has(type)) return true;
+  const def = FURN[type];
+  if (!def || !def.file) return false;
+  if (String(type).startsWith(CUSTOM_PREFIX)) return false;
+  const cached = _glbCache.get(def.file);
+  return !!(cached && cached.children.length);
 }
 
 // ============================================================
@@ -5089,6 +5569,29 @@ function buildWallSegment(parent, mat, x0, x1, y0, y1, th, wi, ops, localC) {
   segMesh(parent, mat, cur, x1, y0, y1, th, wi);
 }
 
+// ── 门窗材质派生(build 与"仅材质刷新"共用,保证两边一致) ──
+function _windowOpMats(op) {
+  const fMat = (op.leafColor && op.leafColor !== 'default')
+    ? new THREE.MeshStandardMaterial({ color: op.leafColor, roughness: 0.5, metalness: 0.4 })
+    : M.frame;
+  const gMat = (op.glassColor && op.glassColor !== 'default')
+    ? new THREE.MeshPhysicalMaterial({ color: op.glassColor, transparent: true, opacity: 0.28, roughness: 0.05, side: THREE.DoubleSide })
+    : M.glass;
+  return { f: fMat, g: gMat };
+}
+function _doorLeafMat(op, ww, h) {
+  const leafBase = (op.leafColor && op.leafColor !== 'default') ? op.leafColor : null;
+  let leafMat = leafBase
+    ? new THREE.MeshStandardMaterial({ color: leafBase, roughness: 0.55 })
+    : M.doorLeaf;
+  if (op.leafTex) {
+    const baseHex = leafBase || ('#' + M.doorLeaf.color.getHexString());
+    const variant = applyMatVariant(leafMat, op.leafTex, baseHex, [Math.max(1, Math.round(ww * 4)), Math.max(1, Math.round(h * 4))]);
+    if (variant !== leafMat) leafMat = variant;
+  }
+  return leafMat;
+}
+
 function buildWall(w, wi, mit) {
   const dx = w.bx - w.ax, dz = w.bz - w.az;
   const L = Math.hypot(dx, dz);
@@ -5096,6 +5599,8 @@ function buildWall(w, wi, mit) {
   g.position.set(w.ax, levelY(w.lv || 0), w.az);
   g.rotation.y = -Math.atan2(dz, dx);
   g.userData = { kind: 'wall', wi };
+  const _matSkinRefs = [];   // [{mesh, key:'matIn'|'matOut'}] — 材质原位刷新用
+  const _matOpRefs = [];     // [{oi, group, f?, g?, leaf?, ww?, h?}] — 门窗材质刷新用
   const H = (w.h != null ? w.h : doc.wallH), th = w.th;
   const extS = (mit && mit.s) || 0, extE = (mit && mit.e) || 0;
   const x0 = -extS, x1 = L + extE;      // 本地 x 范围（含墙角延长）
@@ -5170,6 +5675,7 @@ function buildWall(w, wi, mit) {
         sm.receiveShadow = true;
         sm.userData = { kind: 'wall', wi };
         g.add(sm); pickMeshes.push(sm);
+        _matSkinRefs.push({ mesh: sm, key });
       }
     } catch (err) { /* 蒙皮失败不影响主体 */ }
   }
@@ -5185,12 +5691,8 @@ function buildWall(w, wi, mit) {
       wg.position.set((s + e) / 2, 0, 0);
       wg.userData = { kind: 'window', wi, oi: op._oi };
       // 颜色材质（按 op.leafColor / op.glassColor 派生，否则用默认 M.frame / M.glass）
-      const fMat = (op.leafColor && op.leafColor !== 'default')
-        ? new THREE.MeshStandardMaterial({ color: op.leafColor, roughness: 0.5, metalness: 0.4 })
-        : M.frame;
-      const gMat = (op.glassColor && op.glassColor !== 'default')
-        ? new THREE.MeshPhysicalMaterial({ color: op.glassColor, transparent: true, opacity: 0.28, roughness: 0.05, side: THREE.DoubleSide })
-        : M.glass;
+      const { f: fMat, g: gMat } = _windowOpMats(op);
+      _matOpRefs.push({ oi: op._oi, group: wg, f: fMat, g: gMat });
       const style = op.kind || 'single';
       // 共用部件：窗台板（避免地面漏口边缘不齐）
       addLocal(wg, box(ww + 0.1, 0.04, w.th + 0.1), fMat, 0, op.sill - 0.02, 0);
@@ -5241,15 +5743,8 @@ function buildWall(w, wi, mit) {
       dg.position.set((s + e) / 2, 0, 0);
       dg.userData = { kind: 'door', wi, oi: op._oi };
       // 门扇材质（按 op.leafColor 派生基色；按 op.leafTex 加纹理）
-      const leafBase = (op.leafColor && op.leafColor !== 'default') ? op.leafColor : null;
-      let leafMat = leafBase
-        ? new THREE.MeshStandardMaterial({ color: leafBase, roughness: 0.55 })
-        : M.doorLeaf;
-      if (op.leafTex) {
-        const baseHex = leafBase || ('#' + M.doorLeaf.color.getHexString());
-        const variant = applyMatVariant(leafMat, op.leafTex, baseHex, [Math.max(1, Math.round(ww * 4)), Math.max(1, Math.round(op.height * 4))]);
-        if (variant !== leafMat) leafMat = variant;
-      }
+      const leafMat = _doorLeafMat(op, ww, op.height);
+      _matOpRefs.push({ oi: op._oi, group: dg, leaf: leafMat, ww, h: op.height });
       const style = op.kind || 'single';
       // ── isOpen 开关门状态:把可动门扇/把手放进 hinge 子组,绕 Y 轴旋转 ──
       const isOpen = !!op.isOpen;
@@ -5315,9 +5810,61 @@ function buildWall(w, wi, mit) {
     }
   }
   g.visible = !_isHidden('wall', wi) && (lvMode !== 'solo' || (w.lv || 0) === activeLv);
+  // 材质元数据:几何不变、仅材质字段变化时,refreshWallMaterials 原位换引用,免 CSG 重建
+  g.userData._matRefs = { bodyLow: matLow, skins: _matSkinRefs, ops: _matOpRefs };
   planGroup.add(g);
   wallGroups[wi] = g;
   return g;
+}
+
+// ── 仅材质变化的原位刷新(几何 hash 不变时由 rebuild3D 调用) ──
+// 返回 true=刷新成功;false=缺元数据(旧构建),调用方应回退全量重建
+function refreshWallMaterials(w, g) {
+  const refs = g.userData && g.userData._matRefs;
+  if (!refs) return false;
+  // 主体(下半段/整墙):与 buildWall 同参重新派生,按旧材质身份换引用
+  if (!w.glass && refs.bodyLow) {
+    const L = Math.hypot(w.bx - w.ax, w.bz - w.az);
+    const H = (w.h != null ? w.h : doc.wallH) || 2.75;
+    const halfH = w.halfWall
+      ? Math.max(0.2, Math.min((w.halfHeight != null ? w.halfHeight : 1.2), H - 0.05))
+      : H;
+    const newLow = applyMatVariant(M.wall, w.wallTex, w.wallBase,
+      [Math.max(1, Math.round(L * 4)), Math.max(1, Math.round(halfH * 2))]);
+    if (newLow !== refs.bodyLow) {
+      const old = refs.bodyLow;
+      g.traverse(o => { if (o.isMesh && o.material === old) o.material = newLow; });
+      refs.bodyLow = newLow;
+    }
+  }
+  // 内/外蒙皮(颜色直接改,材质是构建时私有的)
+  for (const s of refs.skins) {
+    const hex = w[s.key];
+    if (hex && s.mesh && s.mesh.material && s.mesh.material.color) s.mesh.material.color.set(hex);
+  }
+  // 门窗扇/玻璃:按旧材质身份映射到新派生材质
+  for (const ref of refs.ops) {
+    const op = (w.openings || [])[ref.oi];
+    if (!op) continue;
+    if (ref.f != null || ref.g != null) {          // 窗
+      const { f: nF, g: nG } = _windowOpMats(op);
+      if (nF !== ref.f || nG !== ref.g) {
+        ref.group.traverse(o => {
+          if (!o.isMesh) return;
+          if (ref.f != null && o.material === ref.f) o.material = nF;
+          else if (ref.g != null && o.material === ref.g) o.material = nG;
+        });
+        ref.f = nF; ref.g = nG;
+      }
+    } else if (ref.leaf != null) {                 // 门
+      const nL = _doorLeafMat(op, ref.ww, ref.h);
+      if (nL !== ref.leaf) {
+        ref.group.traverse(o => { if (o.isMesh && o.material === ref.leaf) o.material = nL; });
+        ref.leaf = nL;
+      }
+    }
+  }
+  return true;
 }
 
 // ── 墙角自动延长：共享端点恰好两面墙时，各自延出半厚填补墙角 ──
@@ -5633,7 +6180,8 @@ function _disposeGroupChildren(group) {
   const toDispose = [];
   group.traverse(o => {
     if (o.isMesh) {
-      if (o.geometry) toDispose.push(o.geometry);
+      // __glbShared:几何属于 _glbCache 共享缓存,dispose 会让其他实例/后续克隆的 GPU 缓存失效
+      if (o.geometry && !o.geometry.__glbShared) toDispose.push(o.geometry);
       // 标记自创建材质以便 caller 决定是否 dispose(_wallMatCache 里的我们不 dispose)
     }
     // 同时清掉 pickMeshes 里指向的引用
@@ -5658,9 +6206,19 @@ function rebuild3D() {
   _isHidden = (kind, i) => _hidden[`${kind}:${i}`];
 
   // 先清掉被删除的实体(在 doc 里消失的 index)
+  // key 可能是数字(墙/楼梯/地面)或 'furn:N' / 'glass:N' 这类带前缀字符串,
+  // 字符串 'furn:7' >= 5 在 JS 里恒为 false,所以 _pruneMap 必须自己解析前缀。
   function _pruneMap(map, len) {
     for (const key of [...map.keys()]) {
-      if (key >= len) {
+      let idx;
+      if (typeof key === 'number') idx = key;
+      else if (typeof key === 'string') {
+        const m = /^(\d+)$/.exec(key);
+        if (m) idx = +m[1];
+        else if (key.startsWith('furn:')) idx = +key.slice(5);
+        else continue; // 其它自定义前缀放过
+      } else continue;
+      if (idx >= len) {
         const entry = map.get(key);
         const g = entry.group || entry.mesh;
         _disposeGroupChildren(g);
@@ -5729,7 +6287,26 @@ function rebuild3D() {
       dimU = Math.max(0.5, Math.abs(f.x2 - f.x1));
       dimV = Math.max(0.5, Math.abs(f.z2 - f.z1));
     }
-    if (f.tex) {
+    if (f.tex === 'wood-floor-040') {
+      // PBR 木地板（Poly Haven/ambientCG CC0）：color + normal + roughness 三贴图
+      const pbr = _floorPbrTex(f.tex);
+      if (pbr.ready) {
+        const rU = Math.max(1, Math.round(dimU / 0.5));
+        const rV = Math.max(1, Math.round(dimV / 0.5));
+        const c = pbr.color.clone();  c.wrapS = c.wrapT = THREE.RepeatWrapping;  c.repeat.set(rU, rV);
+        const n = pbr.normal.clone(); n.wrapS = n.wrapT = THREE.RepeatWrapping; n.repeat.set(rU, rV);
+        const r = pbr.rough.clone();  r.wrapS = r.wrapT = THREE.RepeatWrapping;  r.repeat.set(rU, rV);
+        mat.map = c; mat.normalMap = n; mat.roughnessMap = r;
+        mat.roughness = 1.0;   // 让 roughnessMap 全权控制
+        mat.metalness = 0.0;
+        mat.color.set(1, 1, 1);
+        mat.needsUpdate = true;
+      } else {
+        // PBR 加载未就绪,降级用程序化木纹
+        const variant = applyMatVariant(mat, 'wood', f.color, [Math.max(1, Math.round(dimU / 0.5)), Math.max(1, Math.round(dimV / 0.5))]);
+        if (variant !== mat) mat = variant;
+      }
+    } else if (f.tex) {
       const variant = applyMatVariant(mat, f.tex, f.color, [Math.max(1, Math.round(dimU / 0.5)), Math.max(1, Math.round(dimV / 0.5))]);
       if (variant !== mat) mat = variant;
     }
@@ -5788,14 +6365,19 @@ function rebuild3D() {
   const miters = computeMiters();
   doc.walls.forEach((w, wi) => {
     const newHash = _wallGeomHash(w, miters[wi]);
+    const newMatHash = _wallMatHash(w);
     const cached = _wallNodeByWi.get(wi);
-    // 复用只看几何 hash:选中/hover 高亮走 selHelper 覆盖层,
-    // 不再销毁重建墙体(CSG + 阴影重烘焙是 hover 扫墙卡顿的根源)
     if (cached && cached.hash === newHash) {
       wallGroups[wi] = cached.group;
       // 同步显隐
       cached.group.visible = !_isHidden('wall', wi) && (lvMode !== 'solo' || (w.lv || 0) === activeLv);
-      return;
+      if (cached.matHash === newMatHash) return;   // 快速路径:几何+材质都没变
+      // 仅材质变化(改色/换纹理/门窗扇颜色):原位换材质引用,不跑 CSG、不重烘焙阴影
+      if (refreshWallMaterials(w, cached.group)) {
+        cached.matHash = newMatHash;
+        return;
+      }
+      // refresh 失败(旧构建无元数据)→ 落到下面的全量重建
     }
     // 几何变化:销毁旧,创建新
     if (cached) {
@@ -5803,7 +6385,7 @@ function rebuild3D() {
       planGroup.remove(cached.group);
     }
     const newGroup = buildWall(w, wi, miters[wi]);
-    _wallNodeByWi.set(wi, { hash: newHash, group: newGroup });
+    _wallNodeByWi.set(wi, { hash: newHash, matHash: newMatHash, group: newGroup });
     _geomDirty = true;
   });
 
@@ -5816,7 +6398,7 @@ function rebuild3D() {
   }
   const typeCount = {};
   (doc.furniture || []).forEach((f, fi) => {
-    if (FURN[f.type] && NATIVE_INSTANCED_OK.has(f.type)) {
+    if (FURN[f.type] && _furnInstancedEligible(f.type)) {
       typeCount[f.type] = (typeCount[f.type] || 0) + 1;
     }
   });
@@ -5827,26 +6409,17 @@ function rebuild3D() {
     const def = FURN[f.type];
     if (!def) return;
     const visible = !_isHidden('furniture', fi) && (lvMode !== 'solo' || (f.lv || 0) === activeLv);
-    // _captureFurnProto 把每个 part 的 localMatrix 都减去了 bbox.center,
-    // 所以"在 y 放 dummy"等价于"中心落在 y"。要底面贴地(y+bbox.min.y=0)
-    // 就得把 y 抬到 levelY + yOff + bbox.min.y。
-    // 旧版 def.yOff 是按未中心化坐标算的偏移,这里统一叠加 bbox.min.y。
-    let yFloorOffset = 0;
-    if (NATIVE_INSTANCED_OK.has(f.type) && !furnProto[f.type]) {
-      furnProto[f.type] = _captureFurnProto(f.type, def.build);
-      furnBBox[f.type] = furnProto[f.type].bbox;
-    }
-    if (NATIVE_INSTANCED_OK.has(f.type)) {
-      const bb = furnBBox[f.type];
-      yFloorOffset = bb ? bb.center.y : 0;
-    }
-    const y = levelY((f.lv || 0)) + (def.yOff || 0) + yFloorOffset;
+    const y = levelY((f.lv || 0)) + (f.y != null ? f.y : (def.yOff || 0));
     const baseSc = def.scale || 1;
     const userSc = f.scale != null ? f.scale : 1;
     const sc = baseSc * userSc;
     const rot = f.rot || 0;
 
-    if (NATIVE_INSTANCED_OK.has(f.type)) {
+    if (_furnInstancedEligible(f.type)) {
+      if (!furnProto[f.type]) {
+        furnProto[f.type] = _captureFurnProto(f.type, def.build);
+        furnBBox[f.type] = furnProto[f.type].bbox;
+      }
       const instArr = _ensureFurnInstanced(f.type);
       if (!instArr) { furnitureGroups[fi] = null; return; }
       const proto = furnProto[f.type];
@@ -5894,6 +6467,11 @@ function rebuild3D() {
     furnitureGroups[fi] = g;
     _wallNodeByWi.set('furn:' + fi, { hash: furnHash, group: g });
     _geomDirty = true;
+    // GLB 尚未加载完(空组不可见):挂一次性回调,加载完成后 rebuild 一次 ——
+    // 家具自动"补帧"出现,并升级到实例化管线(rebuild 是 dirty 合并的,同型多件只触发一次)
+    if (def.file && !String(f.type).startsWith(CUSTOM_PREFIX) && !_glbCache.has(def.file)) {
+      loadGLB(def.file).then(() => { if (_glbCache.has(def.file)) rebuild(); }).catch(() => {});
+    }
   });
   // 清零 InstancedMesh 中超出 count 的旧 slot 矩阵，防止删除家具后幽灵实例残留
   for (const type in furnInstanced) {
@@ -5914,6 +6492,8 @@ function rebuild3D() {
   }
   // 删除被移除的家具(以 furn: 开头的 key)
   const curFurnCount = (doc.furniture || []).length;
+  // 接触阴影重建(每家具 1 plane,共享 alphaMap/material,几何池化)
+  _refreshContactShadows(doc);
   for (const key of [..._wallNodeByWi.keys()]) {
     if (typeof key === 'string' && key.startsWith('furn:')) {
       const idx = +key.slice(5);
@@ -5985,10 +6565,8 @@ function rebuild3D() {
           const edges = new THREE.EdgesGeometry(boxGeo);
           boxGeo.dispose();
           const wire = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffaa00 }));
-          // fg.y 现在是家具底面世界 y(dummy 已被抬到「底面贴地」),
-          // BoxGeometry 默认中心在原点,所以高亮框中心 = 底面 + size.y/2。
-          // selHelper 挂在 scene 上,需把 doc 坐标换算成世界坐标(减 CX/CZ)
-          wire.position.set(fg.x - CX, fg.y + size.y / 2, fg.z - CZ);
+          // selHelper 挂在 scene 上,需换算成世界坐标(减 CX/CZ),否则高亮框偏移一个中心偏移量
+          wire.position.set(fg.x - CX, fg.y, fg.z - CZ);
           wire.rotation.y = fg.rot;
           wire.scale.setScalar(fg.sc);
           selHelper.add(wire);
@@ -6231,13 +6809,17 @@ function clearFloorPreview() {
 function updateFurnGhost(p, typeOverride) {
   const def = FURN[typeOverride || furnType];
   if (!def) return;
+  // 虚影 y 与新放置的家具 y 同步:furnType 当前正在放置的模型,与 placeFurnAt
+  // / 2D 点击放置行为一致(= f.y ?? def.yOff,新放置 f.y=0)。这样 ceiling light
+  // 之类会有 yOff 的模型,虚影会显示在原设计高度(2.4m),而不是误导用户贴在地面。
+  const ghostY = (def.yOff || 0);
   if (!ghost) {
     ghost = new THREE.Group();
-    addLocal(ghost, box(def.w, 1.0, def.d), M.ghost, 0, 0.5, 0, false);
+    addLocal(ghost, box(def.w, Math.max(0.3, def.h || 1.0), def.d), M.ghost, 0, 0, 0, false);
     ghost.traverse(o => { o.renderOrder = 999; });
     scene.add(ghost);
   }
-  ghost.position.set(p.x - CX, levelY(activeLv), p.z - CZ);
+  ghost.position.set(p.x - CX, levelY(activeLv) + ghostY, p.z - CZ);
   ghost.rotation.y = furnRot;
 }
 // 门/窗放置预览：仅在已选中的目标墙上滑动，严格平行于该墙
@@ -6784,7 +7366,9 @@ renderer.domElement.addEventListener('pointerdown', e => {
     const def = FURN[furnType];
 
     pushUndo();
-    doc.furniture.push({ type: furnType, x: nx, z: nz, rot: furnRot, lv: activeLv });
+    // 显式 y:0:新放置的家具一律贴地,避免 ceiling light / shower 之类 def.yOff
+    // 把模型顶到半空或埋入地下。f.y 可在 inspector 覆写为任意高度。
+    doc.furniture.push({ type: furnType, x: nx, z: nz, y: 0, rot: furnRot, lv: activeLv });
     // 不自动选中新放置的家具: 用户连续放置同一类家具时,左侧家具库面板保持可见,
     // 想编辑已放置家具时再点击它即可。
     rebuild(); refreshProps();
@@ -6798,7 +7382,8 @@ renderer.domElement.addEventListener('pointerdown', e => {
       const def = FURN[stairFurn];
 
       pushUndo();
-      doc.furniture.push({ type: stairFurn, x: nx, z: nz, rot: furnRot, lv: activeLv });
+      // 显式 y:0:新放置的家具一律贴地（与普通 furn 工具同语义,可在 inspector 改）
+      doc.furniture.push({ type: stairFurn, x: nx, z: nz, y: 0, rot: furnRot, lv: activeLv });
       clearGhost();   // 收虚影,可连续放置
       rebuild(); refreshProps();
       return;
@@ -7363,7 +7948,14 @@ addEventListener('keydown', e => {
   if (e.shiftKey && k === 'F11') { e.preventDefault(); setTool('stairs'); return; }
   if (k === 'F11') { e.preventDefault(); setTool('floor'); return; }
   if (k === 'f' || k === 'F') { e.preventDefault(); focusOnSel(); return; }
-  if (e.ctrlKey && (k === 'p' || k === 'P')) { e.preventDefault(); openCmd(); return; }
+  if (e.ctrlKey && (k === 'p' || k === 'P')) {
+    e.preventDefault();
+    // 焦点还原目标:canvas 或 body(键盘快捷键无 DOM 触发器)
+    const restore = document.activeElement && document.activeElement !== document.body
+      ? document.activeElement : null;
+    openCmd(restore);
+    return;
+  }
   // Tab：画墙工具内切换 single / chain / room 模式
   if (k === 'Tab' && tool === 'wall') {
     e.preventDefault();
@@ -7861,13 +8453,14 @@ function startOnboard() {
     wrap.hidden = false;
   }
   function end() {
-    wrap.hidden = true;
+    ui.close('onboard');
     try { localStorage.setItem('tp3d_onboard_done', '1'); } catch {}
   }
   nextBtn.onclick = () => { i++; render(); };
   skipBtn.onclick = end;
   hl.onclick = end;
   render();
+  ui.open('onboard');
 }
 globalThis.__startOnboard = startOnboard;
 
@@ -7884,6 +8477,7 @@ const _CMDS = [
   { cat: '视图', name: '切换俯视/透视 (F5)', kb: 'F5', fn: () => toggleView() },
   { cat: '视图', name: '聚焦当前选中 (F)', kb: 'F', fn: () => focusOnSel() },
   { cat: '视图', name: '重置视图', fn: () => { camera.position.set(6.5, 7.2, 8.5); controls.target.set(0, 0, 0); controls.update(); } },
+  { cat: '视图', name: '切换画质档 (实时/摄影)', kb: '⌃⇧P', fn: () => applyRenderPreset(_renderPresetName === 'realtime' ? 'photo' : 'realtime') },
   { cat: '文件', name: '保存方案 (F2 / Ctrl+S)', kb: 'F2', fn: () => saveDoc() },
   { cat: '文件', name: '打开方案 (F3 / Ctrl+O)', kb: 'F3', fn: () => loadDoc() },
   { cat: '文件', name: '导出 JSON', fn: () => exportJSON() },
@@ -7896,14 +8490,15 @@ const _CMDS = [
   { cat: '教程', name: '显示快捷键速查 (F1)', kb: 'F1', fn: () => showHelp() },
   { cat: '教程', name: '重新显示引导气泡', fn: () => { localStorage.removeItem('tp3d_onboard_done'); startOnboard(); } },
 ];
-function openCmd() {
+function openCmd(trigger) {
   const p = document.getElementById('cmdPalette');
   const inp = document.getElementById('cmdInput');
   const list = document.getElementById('cmdList');
   if (!p) return;
-  p.hidden = false;
   inp.value = '';
   let sel = 0;
+  // 暂存 trigger,ui.open 时用它做焦点还原
+  window._uiCmdTrigger = trigger || null;
   function render() {
     const q = inp.value.trim().toLowerCase();
     const items = _CMDS.map((c, i) => ({ ...c, i }))
@@ -7922,17 +8517,18 @@ function openCmd() {
     const s = list.querySelector('.cmd-item.sel');
     if (s) s.scrollIntoView({ block: 'nearest' });
   }
-  function closeCmd() { p.hidden = true; }
+  function closeCmd() { ui.close('cmdPalette'); }
   inp.oninput = () => { sel = 0; render(); };
   inp.onkeydown = e => {
-    if (e.key === 'Escape') { closeCmd(); e.preventDefault(); }
-    else if (e.key === 'Enter') { const items = list.querySelectorAll('.cmd-item'); if (items[sel]) items[sel].click(); e.preventDefault(); }
+    // Esc 交给 ui 调度器(顶层 cmdPalette 会被关掉)
+    if (e.key === 'Enter') { const items = list.querySelectorAll('.cmd-item'); if (items[sel]) items[sel].click(); e.preventDefault(); }
     else if (e.key === 'ArrowDown') { sel = Math.min(sel + 1, list.querySelectorAll('.cmd-item').length - 1); render(); e.preventDefault(); }
     else if (e.key === 'ArrowUp') { sel = Math.max(0, sel - 1); render(); e.preventDefault(); }
   };
   p.querySelector('.cmd-mask').onclick = closeCmd;
   render();
-  setTimeout(() => inp.focus(), 0);
+  ui.open('cmdPalette', window._uiCmdTrigger || document.activeElement);  // ui 自动 focus + 接管 Esc
+  window._uiCmdTrigger = null;
 }
 globalThis.__openCmd = openCmd;
 
@@ -7961,17 +8557,25 @@ function refreshProps() {
       || sel.kind === 'floor' || sel.kind === 'furniture' || sel.kind === 'opening' || sel.kind === 'multi');
     const toolPanel = !sel && (tool === 'furn' || tool === 'floor' || tool === 'stairs');
     const shouldOpen = hasObjSel || toolPanel;
-    inspectorEl.classList.toggle('open', !!shouldOpen);
-    // 工具面板(家具库/地面工具)会自动撑出 inspector,占满左侧,与 filesPanel 并存时
+    // 走 panel-tabs 统一开关,保留视觉/语义(刷新内部 panel-tab active 状态)
+    if (shouldOpen) {
+      if (typeof window.__panelTabs !== 'undefined') window.__panelTabs.show('inspector', { silent: true });
+      else inspectorEl.classList.toggle('open', true);
+    } else {
+      // 只有当 inspector 当前是因为"跟随选中"而打开的,才允许自动关闭;
+      // 用户手动切到 inspector tab 时不收(否则无法查看上次选中的对象属性)
+      if (typeof window.__panelTabs === 'undefined' || window.__panelTabs.followSelection) {
+        if (typeof window.__panelTabs !== 'undefined') window.__panelTabs.hide('inspector', { silent: true });
+        else inspectorEl.classList.toggle('open', false);
+      }
+    }
+    // 工具面板(家具库/地面工具)会自动撑出 inspector,与 filesPanel 并存时
     // 视觉/空间都过于拥挤;此场景下收起 filesPanel 释放左侧栏位。
-    // 仅工具面板触发,选中对象时不收(用户可能正在文件栏浏览并选中)。
     if (toolPanel && typeof window.__filesToggle === 'function') {
       window.__filesToggle(false, { silent: true });
     }
     if (hasObjSel) {
       // 选中对象时让 inspector 优先于 theme,关闭它让出左侧栏位
-      // 大纲面板不收: 用户主动点大纲项进去选对象时,大纲本身就是导航工具,
-      // 让它保持展开便于继续浏览/切换其它对象
       if (typeof window.__themeToggle === 'function') window.__themeToggle(false, { silent: true });
     }
   }
@@ -8007,7 +8611,7 @@ function refreshProps() {
       .map(([t, n]) => `<button class="styleBtn ${stairFurn === '' && stairType === t ? 'on' : ''}" data-stairtype="${t}">${n}</button>`).join('');
     const furnBtns = stairFurnItems.map(([k, d]) =>
       `<button class="fitem ${stairFurn === k ? 'active' : ''}" data-stairfurn="${k}">
-        <span class="em">${d.icon || '▦'}</span>${d.name}</button>`).join('');
+        <span class="em">${d.icon || ICON.cube}</span>${d.name}</button>`).join('');
     propsBody.innerHTML = `
       <h3>楼梯工具</h3>
       <div class="note">左键放置参数化楼梯,可连续放置;自动按层高计算踏步数。</div>
@@ -8042,8 +8646,14 @@ function refreshProps() {
   if (!sel && tool === 'furn') {
     const q = (_furnSearch || '').toLowerCase();
     const onKey = (k) => furnType === k;
-    const item = (k, d) => `<button class="fitem ${onKey(k) ? 'active' : ''}" data-furn="${k}">
-        <span class="em">${d.icon || '▦'}</span>${d.name}${d.custom ? `<span class="fdel" data-fdel="${d.custom}" title="删除此模型">✕</span>` : ''}</button>`;
+    const item = (k, d) => {
+      // 吸顶 / 嵌入模型:在名字后加小角标,提示用户该模型默认不在地面
+      let tag = '';
+      if (d.yOff && d.yOff > 0.5) tag = `<span class="ftag" title="默认吸顶高度 ${d.yOff}m,放置后可在属性面板改">↑${d.yOff}m</span>`;
+      else if (d.yOff && d.yOff < -0.1) tag = `<span class="ftag" title="默认贴地以下 ${Math.abs(d.yOff)}m,放置后可在属性面板改">↓${Math.abs(d.yOff)}m</span>`;
+      return `<button class="fitem ${onKey(k) ? 'active' : ''}" data-furn="${k}">
+        <span class="em">${d.icon || ICON.cube}</span>${d.name}${tag}${d.custom ? `<span class="fdel" data-fdel="${d.custom}" title="删除此模型">${ICON.x}</span>` : ''}</button>`;
+    };
     // 按 cat 分组
     const groups = {};
     Object.entries(FURN).forEach(([k, d]) => {
@@ -8476,6 +9086,11 @@ function refreshProps() {
     const f = doc.furniture[sel.fi], def = FURN[f.type];
     const locked = !!f.locked;
     const flv = f.lv || 0;
+    // f.y 是用户覆写的 Y 偏移(优先于 def.yOff),未设置时显示 def.yOff 默认值
+    const effY = f.y != null ? f.y : (def?.yOff || 0);
+    const isCustomY = f.y != null;
+    const designY = def?.yOff || 0;
+    const designHint = designY ? `（设计高度 ${designY.toFixed(1)}m）` : '';
     const options = Object.entries(FURN).map(([k, v]) =>
       `<option value="${k}" ${k === f.type ? 'selected' : ''}>${v.icon} ${v.name}</option>`).join('');
     propsBody.innerHTML = `
@@ -8485,6 +9100,7 @@ function refreshProps() {
         <div class="frow"><label>类型</label><select id="pFType" style="max-width:160px">${options}</select></div>
         <div class="frow"><label>中心 X (m)</label><input id="pFX" type="number" step="0.05" value="${(f.x || 0).toFixed(2)}"></div>
         <div class="frow"><label>中心 Z (m)</label><input id="pFZ" type="number" step="0.05" value="${(f.z || 0).toFixed(2)}"></div>
+        <div class="frow"><label>高度 Y (m)</label><input id="pFY" type="number" step="0.05" value="${effY.toFixed(2)}" title="${designHint}"></div>
         <div class="frow"><label>角度 (°)</label><input id="pFRot" type="number" step="15" value="${Math.round((f.rot || 0) * 180 / Math.PI)}"></div>
         <div class="frow"><label>缩放</label><input id="pFSc" type="number" step="0.1" min="0.3" max="3" value="${(f.scale || 1).toFixed(2)}"></div>
         <div class="frow"><label>楼层</label><input id="pFLv" type="number" step="1" min="0" max="20" value="${flv}"></div>
@@ -8493,18 +9109,22 @@ function refreshProps() {
           <button id="pFLockY" class="${locked ? 'on' : ''}">是</button>
           <button id="pFLockN" class="${!locked ? 'on' : ''}">否</button></div></div>
       </details>
+      <div class="note">高度 Y：${isCustomY ? '已自定义' : '使用设计高度'}${designHint}。吸顶灯默认 2.4m,落地家具默认 0m。</div>
+      <div class="btnrow"><button class="btn" id="pFYReset" title="还原为模型设计高度">↺ 还原设计高度 (${designY.toFixed(1)}m)</button></div>
       <div class="note">F4 选择工具下可直接拖动移动；R 顺时针转 45°（Shift+R 逆时针，自动对齐 45° 网格）。</div>
       <div class="btnrow"><button class="btn" id="pRot">旋转 45° (R)</button></div>
       <div class="btnrow"><button class="btn" id="pDel">删除 (Del)</button></div>`;
     const selType = document.getElementById('pFType');
-    if (selType) selType.addEventListener('change', () => { pushUndo(); f.type = selType.value; rebuild(); refreshProps(); });
+    if (selType) selType.addEventListener('change', () => { pushUndo(); f.type = selType.value; delete f.y; rebuild(); refreshProps(); });
     bindNum('pFX', v => { f.x = v; rebuild(); });
     bindNum('pFZ', v => { f.z = v; rebuild(); });
+    bindNum('pFY', v => { f.y = v; rebuild(); refreshProps(); });
     bindNum('pFRot', v => { f.rot = (v % 360) * Math.PI / 180; rebuild(); refreshProps(); });
     bindNum('pFSc', v => { f.scale = Math.max(0.3, Math.min(3, v)); rebuild(); });
     bindNum('pFLv', v => { f.lv = Math.max(0, Math.round(v)); rebuild(); refreshProps(); });
     $('pFLockY').onclick = () => { pushUndo(); f.locked = true; rebuild(); refreshProps(); };
     $('pFLockN').onclick = () => { pushUndo(); delete f.locked; rebuild(); refreshProps(); };
+    $('pFYReset').onclick = () => { pushUndo(); delete f.y; rebuild(); refreshProps(); };
     $('pRot').onclick = () => { pushUndo(); f.rot = stepRot45(f.rot || 0, 1); rebuild(); refreshProps(); };
     $('pDel').onclick = () => { pushUndo(); doc.furniture.splice(sel.fi, 1); sel = null; rebuild(); refreshProps(); };
     return;
@@ -8687,7 +9307,7 @@ function flash(msg, type = 'info') {
 
 // 通用 Toast 系统（右下角堆叠）
 const toastWrap = document.getElementById('toastWrap');
-const toastIcons = { info: 'ℹ', success: '✓', warn: '⚠', error: '✕' };
+const toastIcons = { info: ICON.info, success: ICON.check, warn: ICON.warn, error: ICON.x };
 function toast(msg, type = 'info', duration = 4000) {
   if (!toastWrap) { console.log('[toast]', type, msg); return { close: () => {} }; }
   const el = document.createElement('div');
@@ -8706,13 +9326,8 @@ function toast(msg, type = 'info', duration = 4000) {
   return { close };
 }
 
-// 撤销栈提示
+// 撤销栈提示（撤销/重做按钮已移到顶栏 #undoRedo,状态栏 #undoTip 已隐藏）
 function refreshUndoTip() {
-  const tip = document.getElementById('undoTip');
-  if (!tip) return;
-  const u = undoStack.length, r = redoStack.length;
-  tip.textContent = (u || r) ? `↶ ${u}  ↷ ${r}` : '';
-  tip.title = u ? `可撤销 ${u} 步\n可重做 ${r} 步` : '';
   syncUndoButtons();
 }
 
@@ -8753,10 +9368,10 @@ const outlineTree = (() => {
     if (!body) return;
     if (typeof activeLv !== 'undefined' && activeLv !== lastLv) { lastLv = activeLv; }
     const groups = [
-      { k: 'walls',     ic: '▥', t: '墙' },
-      { k: 'floors',    ic: '▦', t: '地面' },
-      { k: 'stairs',    ic: '⌇', t: '楼梯' },
-      { k: 'furniture', ic: '⌂', t: '家具' },
+      { k: 'walls',     ic: ICON.wall,    t: '墙' },
+      { k: 'floors',    ic: ICON.floor,   t: '地面' },
+      { k: 'stairs',    ic: ICON.stairs,  t: '楼梯' },
+      { k: 'furniture', ic: ICON.furn,    t: '家具' },
     ];
     let html = '', n = 0;
     for (const g of groups) {
@@ -8777,10 +9392,10 @@ const outlineTree = (() => {
         const grouped = !!obj.gid;
         html += `<div class="otItem ${isSel ? 'sel' : ''} ${hid ? 'hidden' : ''} ${locked ? 'locked' : ''}" data-k="${singular}" data-i="${i}">
           <span class="ic">${g.ic}</span>
-          <span class="lbl" title="${label(singular, i).replace(/"/g,'"')}">${grouped ? '⊞ ' : ''}${label(singular, i)}</span>
-          <span class="lock" title="${locked ? '已锁定(点击解锁)' : '未锁定(点击锁定,锁定后不可拖动)'}">${locked ? '🔒' : '🔓'}</span>
-          <span class="del" title="删除此对象">🗑</span>
-          <span class="vis" title="${hid ? '显示' : '隐藏'}">${hid ? '🚫' : '👁'}</span>
+          <span class="lbl" title="${label(singular, i).replace(/"/g,'"')}">${grouped ? '<svg viewBox="0 0 16 16" class="icon" style="width:11px;height:11px;vertical-align:-1px"><path d="M8 1l1 4h4l-3 2 1 4-3-2-3 2 1-4-3-2h4z"/></svg> ' : ''}${label(singular, i)}</span>
+          <span class="lock" title="${locked ? '已锁定(点击解锁)' : '未锁定(点击锁定,锁定后不可拖动)'}">${locked ? ICON.lock : ICON.unlock}</span>
+          <span class="del" title="删除此对象">${ICON.trash}</span>
+          <span class="vis" title="${hid ? '显示' : '隐藏'}">${hid ? ICON.eyeOff : ICON.eye}</span>
         </div>`;
         n++;
       }
@@ -8796,9 +9411,9 @@ const outlineTree = (() => {
         const isDoor = op.type === 'door';
         const isElev = isDoor && op.kind === 'elevator';
         opHtml += `<div class="otItem ${isSel ? 'sel' : ''}" data-k="opening" data-wi="${wi}" data-oi="${oi}">
-          <span class="ic">${isElev ? '⊟' : (isDoor ? '🚪' : '🪟')}</span>
+          <span class="ic">${isElev ? '<svg viewBox="0 0 16 16" class="icon" style="width:14px;height:14px"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 8h12M8 3v8"/></svg>' : (isDoor ? ICON.door : ICON.window)}</span>
           <span class="lbl">${isElev ? '电梯门' : (isDoor ? '门' : '窗')} · 墙#${wi + 1}</span>
-          <span class="vis" title="跳到墙上" style="opacity:.4">↗</span>
+          <span class="vis" title="跳到墙上" style="opacity:.4">${ICON.arrow}</span>
         </div>`;
         opCount++;
       });
@@ -8878,6 +9493,7 @@ const outlineTree = (() => {
   });
   return { render };
 })();
+globalThis.__outlineTree = outlineTree;
 
 // Rail 侧页注册表:三个面板(files / theme / outline)共享一个互斥集合
 // 注册的回调负责自身 .open 切换;helper 在打开任一面板前先关闭其它已开面板。
@@ -8897,100 +9513,132 @@ globalThis.__closeOtherRailSidePanels = __closeOtherRailSidePanels;
 
 document.querySelectorAll('.railbtn[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
 
-// 大纲按钮：toggle 左侧 outlinePanel（与 inspector 并排显示，可同时打开）
-// 用户在 outline 里点击对象时,大纲面板保持展开,inspector 同步显示属性 → 两栏并列
-(function () {
-  const btn = document.getElementById('btnOutline');
-  const panel = document.getElementById('outlinePanel');
-  const inspector = document.getElementById('inspector');
-  if (!btn || !panel) return;
-  function toggle(force, opts) {
-    const silent = opts && opts.silent;
-    const willOpen = typeof force === 'boolean' ? force : !panel.classList.contains('open');
-    // 打开前先关掉 rail 上的其它侧页(files / theme),保证同一时刻最多一个 .open
-    if (willOpen) __closeOtherRailSidePanels('outline');
-    panel.classList.toggle('open', willOpen);
-    btn.classList.toggle('active', willOpen);
-    // 不再隐藏 inspector: 大纲和 inspector 现在并排在左栏,可以同时显示
-    if (inspector && willOpen) {
-      inspector.classList.remove('collapsed-by-outline');
+// ── 统一面板 Tab 系统(outline / files / theme / inspector) ──
+// 4 个 panel 互斥,inspector 例外:有选中对象时强制跟随。
+// 保留 __outlineToggle / __filesToggle / __themeToggle 的全局 export,老 E2E 调用仍能跑。
+const _panelTabs = (() => {
+  const tabs = document.querySelectorAll('#panelTabs .panel-tab');
+  const panels = {
+    outline:   document.getElementById('outlinePanel'),
+    files:     document.getElementById('filesPanel'),
+    theme:     document.getElementById('themePanel'),
+    inspector: document.getElementById('inspector'),
+    models:    document.getElementById('modelsPanel'),
+  };
+  // 注册到 ui 的 surface id 跟 panel id 同名(REG 里有 'outlinePanel/filesPanel/themePanel',inspector 也按此推)
+  const regIds = {
+    outline:   'outlinePanel',
+    files:     'filesPanel',
+    theme:     'themePanel',
+    inspector: 'inspector',
+    models:    'modelsPanel',
+  };
+  let active = 'outline';    // 当前手动选中的 tab
+  let followSelection = false; // true 时,选中对象会让 inspector 强制激活并压制 active
+
+  function show(name, opts = {}) {
+    const silent = opts.silent;
+    Object.entries(panels).forEach(([n, el]) => {
+      if (!el) return;
+      const open = (n === name);
+      el.classList.toggle('open', open);
+      // theme 打开时 inspector 折叠 + 标记 collapsed-by-theme
+      if (name === 'theme' && open && n === 'inspector') el.classList.add('collapsed-by-theme');
+      else if (n === 'inspector') el.classList.remove('collapsed-by-theme');
+    });
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.panel === name));
+    active = name;
+    // user-initiated tab click: inspector 跟随选中,其它面板不强制跟随
+    followSelection = (name === 'inspector');
+    // 触发对应渲染(仅在 doc 就绪时调用,启动阶段 doc 还未赋值)
+    if (typeof doc !== 'undefined' && doc) {
+      if (name === 'outline' && typeof outlineTree !== 'undefined' && outlineTree.render) outlineTree.render();
+      if (name === 'files'   && typeof renderFilesPanel === 'function') renderFilesPanel();
+      if (name === 'theme'   && typeof renderThemePanel === 'function') renderThemePanel();
+      if (name === 'models'  && typeof renderModelsPanel === 'function') renderModelsPanel();
     }
-    if (willOpen && typeof outlineTree !== 'undefined' && outlineTree.render) {
-      outlineTree.render();
-      if (!silent) flash('大纲面板已打开', 'success');
-    } else if (!willOpen && !silent) {
-      flash('大纲面板已关闭');
+    // ui 栈同步:push 用 ui 模块里 REG 注册过的 surface id,这样 Esc -> close(id) 才能命中
+    if (typeof __ui !== 'undefined') {
+      Object.keys(panels).forEach(n => { if (n !== name) __ui._pop(regIds[n]); });
+      if (panels[name]) __ui._push(regIds[name]);
+    }
+    if (!silent) {
+      const labels = { outline: '大纲', files: '文件工作区', theme: '材质', inspector: '属性', models: '模型管理' };
+      flash(labels[name] + '已打开', 'success');
     }
   }
-  btn.onclick = () => toggle();
-  window.addEventListener('keydown', e => {
-    if (e.key === 'F12') { e.preventDefault(); toggle(); }
+  function hide(name, opts = {}) {
+    const silent = opts.silent;
+    const el = panels[name];
+    if (!el) return;
+    el.classList.remove('open');
+    if (name === 'inspector') el.classList.remove('collapsed-by-theme');
+    tabs.forEach(t => t.classList.toggle('active', false));
+    if (active === name) active = null;
+    followSelection = false;
+    if (typeof __ui !== 'undefined') __ui._pop(regIds[name]);
+    if (!silent) {
+      const labels = { outline: '大纲', files: '文件工作区', theme: '材质', inspector: '属性', models: '模型管理' };
+      flash(labels[name] + '已关闭');
+    }
+  }
+  function toggle(name, opts) {
+    const isOpen = panels[name] && panels[name].classList.contains('open');
+    if (isOpen) hide(name, opts); else show(name, opts);
+  }
+  function ensureVisible(name) {
+    // 给 refreshProps 等内部用:若当前面板不是它,就切过去(silent)
+    if (!panels[name]) return;
+    if (!panels[name].classList.contains('open')) show(name, { silent: true });
+  }
+  tabs.forEach(t => {
+    t.onclick = () => toggle(t.dataset.panel);
   });
-  // 注册到 rail 互斥集合;延迟到 IIFE 末尾再注册以保证 __railSidePanels 已声明
-  __registerRailSidePanel('outline', () => toggle(false, { silent: true }));
-  // 暴露给 E2E
-  globalThis.__outlineToggle = toggle;
+  // 启动:outline 默认开
+  show('outline', { silent: true });
+  return { show, hide, toggle, ensureVisible, get active() { return active; }, get followSelection() { return followSelection; } };
 })();
+globalThis.__panelTabs = _panelTabs;
 
-// 文件工作区面板 toggle：默认收起,点击 rail「文件」按钮展开/收起
-(function () {
-  const btn = document.getElementById('btnFiles');
-  const panel = document.getElementById('filesPanel');
-  if (!btn || !panel) return;
-  function toggle(force, opts) {
+// 向后兼容:旧 E2E 用的 __outlineToggle / __filesToggle / __themeToggle
+function _wrapToggle(name) {
+  return function (force, opts) {
     const silent = opts && opts.silent;
-    const willOpen = typeof force === 'boolean' ? force : !panel.classList.contains('open');
-    // 打开前先关掉 rail 上的其它侧页(theme / outline),保证同一时刻最多一个 .open
-    if (willOpen) __closeOtherRailSidePanels('files');
-    panel.classList.toggle('open', willOpen);
-    btn.classList.toggle('active', willOpen);
-    if (typeof renderFilesPanel === 'function') renderFilesPanel();
-    if (!silent) {
-      if (willOpen) flash('文件工作区已打开', 'success');
-      else          flash('文件工作区已关闭');
-    }
-  }
-  btn.onclick = () => toggle();
-  // 注册到 rail 互斥集合
-  __registerRailSidePanel('files', () => toggle(false, { silent: true }));
-  // 暴露给 E2E
-  globalThis.__filesToggle = toggle;
-})();
-
-// 主题面板 toggle：默认收起,点击 rail「主题」按钮展开/收起
-// 与 inspector/outline/filesPanel 左栏互斥:打开主题时关闭它们
-(function () {
-  const btn = document.getElementById('btnTheme');
-  const panel = document.getElementById('themePanel');
-  if (!btn || !panel) return;
-  function toggle(force, opts) {
-    const silent = opts && opts.silent;
-    const willOpen = typeof force === 'boolean' ? force : !panel.classList.contains('open');
-    // 打开前先关掉 rail 上的其它侧页(files / outline),统一通过注册表关闭
-    if (willOpen) __closeOtherRailSidePanels('theme');
-    panel.classList.toggle('open', willOpen);
-    btn.classList.toggle('active', willOpen);
-    // 打开主题时收起 inspector,避免左栏重叠
-    if (willOpen) {
-      const insp = document.getElementById('inspector');
-      if (insp) { insp.classList.remove('open'); insp.classList.add('collapsed-by-theme'); }
-      if (typeof renderThemePanel === 'function') renderThemePanel();
+    const el = document.getElementById(name === 'outline' ? 'outlinePanel' : name === 'files' ? 'filesPanel' : 'themePanel');
+    if (!el) return;
+    if (typeof force === 'boolean') {
+      if (force) _panelTabs.show(name, { silent });
+      else _panelTabs.hide(name, { silent });
     } else {
-      // 关闭主题时释放 collapsed-by-theme
-      const insp = document.getElementById('inspector');
-      if (insp) insp.classList.remove('collapsed-by-theme');
+      _panelTabs.toggle(name, { silent });
     }
-    if (!silent) {
-      if (willOpen) flash('主题面板已打开', 'success');
-      else          flash('主题面板已关闭');
-    }
-  }
-  btn.onclick = () => toggle();
-  // 注册到 rail 互斥集合
-  __registerRailSidePanel('theme', () => toggle(false, { silent: true }));
-  // 暴露给 E2E
-  globalThis.__themeToggle = toggle;
-})();
+  };
+}
+
+// 大纲 / 文件 / 主题 三个面板的旧版 IIFE 已由上面的 _panelTabs 接管,仅保留 F12 与向后兼容 export。
+window.addEventListener('keydown', e => {
+  if (e.key === 'F12') { e.preventDefault(); _panelTabs.toggle('outline'); }
+});
+__registerRailSidePanel('outline', () => _panelTabs.hide('outline', { silent: true }));
+__registerRailSidePanel('files',   () => _panelTabs.hide('files',   { silent: true }));
+__registerRailSidePanel('theme',   () => _panelTabs.hide('theme',   { silent: true }));
+__registerRailSidePanel('inspector', () => _panelTabs.hide('inspector', { silent: true }));
+__registerRailSidePanel('models',  () => _panelTabs.hide('models',  { silent: true }));
+globalThis.__outlineToggle = _wrapToggle('outline');
+globalThis.__filesToggle = _wrapToggle('files');
+globalThis.__themeToggle = _wrapToggle('theme');
+
+// ── 顶栏快捷按钮：保存 / 打开 / 撤销 / 重做 / 命令面板 ──
+const btnSave = document.getElementById('btn-save');
+if (btnSave) btnSave.onclick = () => { closeAllDD && closeAllDD(); saveDoc(); };
+const btnOpen = document.getElementById('btn-open');
+if (btnOpen) btnOpen.onclick = () => { closeAllDD && closeAllDD(); loadDoc(); };
+const btnUndo = document.getElementById('btnUndo');
+if (btnUndo) btnUndo.onclick = () => { closeAllDD && closeAllDD(); undo(); };
+const btnRedo = document.getElementById('btnRedo');
+if (btnRedo) btnRedo.onclick = () => { closeAllDD && closeAllDD(); redo(); };
+const btnCmd = document.getElementById('btnCmd');
+if (btnCmd) btnCmd.onclick = (e) => { closeAllDD && closeAllDD(); openCmd(e.currentTarget); };
 
 // 画墙模式分段控件：单击切换
 document.querySelectorAll('#wallModeSeg [data-wm]').forEach(b => {
@@ -9075,7 +9723,7 @@ function setFloorLocked(v, opts) {
     const icon = _btnFLock.querySelector('.dicon');
     const lbl = _btnFLock.querySelector('.dlabel');
     const kb = _btnFLock.querySelector('.dkb');
-    if (icon) icon.textContent = floorLocked ? '🔒' : '🔓';
+    if (icon) icon.innerHTML = floorLocked ? ICON.lock : ICON.unlock;
     if (lbl) lbl.textContent = floorLocked ? '已锁定地面层（点击解锁）' : '锁定地面层（禁止移动）';
     if (kb) kb.textContent = floorLocked ? '已开启' : '关闭';
     _btnFLock.title = floorLocked ? '地面层已锁定：禁止通过鼠标移动' : '锁定地面层，禁止通过鼠标移动';
@@ -9246,25 +9894,26 @@ function _syncAssetDirKb() {
   kb.textContent = name ? `📁 ${name}` : '未设置';
 }
 // 顶栏下拉菜单
-function closeAllDD() { document.querySelectorAll('.ddrop.open').forEach(d => d.classList.remove('open')); }
+function closeAllDD() {
+  // 兼容旧 caller;ui 接管调度,但保留此函数供其它处显式调用
+  ['ddAi', 'ddFile', 'ddImport', 'ddView'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('open');
+  });
+}
+// 顶栏 .ddrop:用 ui.toggle 让 Esc/outside-click 统一接管
 document.querySelectorAll('.ddrop').forEach(d => {
+  const id = d.id; // 必须有 id 才会被 ui 注册
+  if (!id) return;
   const trg = d.querySelector('.dtrigger');
   if (!trg) return;
   trg.onclick = (e) => {
     e.stopPropagation();
-    const wasOpen = d.classList.contains('open');
-    closeAllDD();
-    if (!wasOpen) d.classList.add('open');
+    ui.toggle(id, trg);
   };
   d.querySelectorAll('.ditem').forEach(it => {
-    it.addEventListener('click', () => closeAllDD());
+    it.addEventListener('click', () => ui.close(id));
   });
-});
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('.ddrop')) closeAllDD();
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeAllDD();
 });
 refreshUndoTip();
 syncUndoButtons();
@@ -9361,14 +10010,14 @@ renderer.domElement.addEventListener('contextmenu', e => {
   items.push({ t: '删除', danger: true, kb: 'Del', fn: () => { ctxDelete(ctxTarget); } });
   ctxMenu.innerHTML = items.map((it, i) =>
     it.sep ? '<div class="csep"></div>' : `<div class="ci ${it.danger ? 'danger' : ''}" data-i="${i}"><span class="lbl">${it.t}</span><span class="kb">${it.kb || ''}</span></div>`).join('');
-  ctxMenu.style.display = 'block';
   // 边界：菜单宽高未知，做最小矩形限制
   const mw = ctxMenu.offsetWidth || 180, mh = ctxMenu.offsetHeight || items.length * 32;
   ctxMenu.style.left = Math.max(8, Math.min(e.clientX - r.left, r.width - mw - 8)) + 'px';
   ctxMenu.style.top = Math.max(8, Math.min(e.clientY - r.top, r.height - mh - 8)) + 'px';
+  ui.open('ctxMenu');
   ctxMenu.querySelectorAll('.ci').forEach(el => el.onclick = () => {
     const it = items[+el.dataset.i];
-    ctxMenu.style.display = 'none';
+    ui.close('ctxMenu');
     it.fn && it.fn();
   });
 });
@@ -9380,9 +10029,6 @@ function ctxDelete(t) {
   else doc.walls[t.wi].openings.splice(t.oi, 1);
   sel = null; _selMirror = null; rebuild(); refreshProps(); flash('已删除');
 }
-document.addEventListener('pointerdown', e => {
-  if (!ctxMenu.contains(e.target)) ctxMenu.style.display = 'none';
-});
 
 // ============================================================
 // 对话框
@@ -9390,20 +10036,53 @@ document.addEventListener('pointerdown', e => {
 // 对话框
 // ============================================================
 const overlay = document.getElementById('overlay');
-function tpDialog(title, bodyHTML, buttons = [{ t: '关闭' }]) {
+function tpDialog(title, bodyHTML, buttons = [{ t: '关闭' }], opts = {}) {
   const isPrimary = (i) => i === buttons.length - 1;
-  overlay.innerHTML = `<div class="tpdlg"><h3>${title}</h3><div class="body">${bodyHTML}</div><div class="foot"></div></div>`;
-  const foot = overlay.querySelector('.foot');
+  // opts.focusTo: 打开后焦点进入的第一个元素(CSS 选择器)
+  // opts.danger: 让 primary 按钮走 danger 样式(确认删除/不可逆操作)
+  // opts.size: 'compact' → max-width 360px; 'wide' → max-width 640px; 默认中等
+  const sizeCls = opts.size === 'compact' ? ' compact' : (opts.size === 'wide' ? ' wide' : '');
+  overlay.innerHTML = `<div class="tpdlg${sizeCls}" role="dialog" aria-modal="true" aria-label="${(title || '').replace(/"/g, '"')}"><h3>${title}</h3><div class="body">${bodyHTML}</div><div class="foot"></div></div>`;
+  const dlg = overlay.firstElementChild;
+  const foot = dlg.querySelector('.foot');
   buttons.forEach((b, i) => {
     const btn = document.createElement('button');
-    btn.className = 'btn' + (isPrimary(i) ? ' primary' : '');
+    btn.className = 'btn' + (isPrimary(i) ? (b.danger ? ' danger' : ' primary') : '');
     btn.textContent = b.t;
-    btn.onclick = () => { hideDialog(); b.fn && b.fn(); };
+    // keep: 点击后不关闭弹窗(供"生成中"保持进度可见的场景),由 fn 自行 hideDialog()
+    btn.onclick = () => { if (!b.keep) hideDialog(); b.fn && b.fn(); };
     foot.appendChild(btn);
   });
   overlay.classList.add('show');
+  overlay.setAttribute('aria-hidden', 'false');
+  // 自动焦点(focusTo 指定第一个可聚焦元素;无则焦点进 dlg 自身)
+  if (opts.focusTo) {
+    const t = dlg.querySelector(opts.focusTo);
+    if (t) { try { t.focus({ preventScroll: true }); if (t.select) t.select(); } catch (e) {} }
+  } else {
+    // 兜底:第一个 button/input/textarea
+    const t = dlg.querySelector('input,textarea,button');
+    if (t) { try { t.focus({ preventScroll: true }); } catch (e) {} }
+  }
+  // 推入 ui 栈,让 Esc 调度器能关掉它(焦点恢复由 hideDialog() 负责)
+  // 触发器:tpDialog 通常由按钮调用,记下当前活动元素作为 Esc 还原目标
+  if (typeof __ui !== 'undefined') {
+    try { window._uiOverlayTrigger = document.activeElement; } catch (e) {}
+    __ui._push('overlay');
+  }
 }
-function hideDialog() { overlay.classList.remove('show'); }
+function hideDialog() {
+  overlay.classList.remove('show');
+  overlay.setAttribute('aria-hidden', 'true');
+  if (typeof __ui !== 'undefined') {
+    __ui._pop('overlay');
+    // 焦点还原:把焦点还给打开此弹窗的按钮
+    if (window._uiOverlayTrigger && document.contains(window._uiOverlayTrigger)) {
+      try { window._uiOverlayTrigger.focus({ preventScroll: true }); } catch (e) {}
+    }
+    window._uiOverlayTrigger = null;
+  }
+}
 function showHelp() {
   tpDialog('快捷键一览', `
     <table>
@@ -9425,6 +10104,219 @@ function showHelp() {
     </table>`);
 }
 overlay.addEventListener('click', e => { if (e.target === overlay) hideDialog(); });
+
+// ============================================================
+// 统一 UI 交互层 ui (Step 1-2)
+// ── 单一 Esc/outside-click 调度器, focus 陷阱, 焦点恢复 ──
+// 17 个 surface 注册到 REG,通过 ui.open(id, trigger) 打开,
+// Esc 或点击 surface 外自动关闭(顶层优先),焦点回到 trigger。
+// 包装而非替换:每个 surface 的实际 open/close 函数仍是已有的 helper。
+// ============================================================
+const ui = (() => {
+  const REG = new Map();   // id → {open(el), close(), onTop?, focusTrap?, root?:string}
+  const STACK = [];        // 当前打开的 surface,LIFO;Esc 优先关 STACK 顶
+  let lastTrigger = null;  // 最近一次 ui.open(id, el) 的 trigger,关闭时焦点还原
+
+  function register(id, opts) { REG.set(id, Object.assign({ onTop: false, focusTrap: false }, opts)); }
+
+  function open(id, trigger) {
+    const r = REG.get(id); if (!r) return false;
+    const root = r.root ? document.querySelector(r.root) : null;
+    // mutex:onTop 类的(下拉、模态)在打开时把同 mutex 组的其它关掉
+    if (r.onTop && r.mutex) {
+      for (const [oid, o] of REG) {
+        if (oid === id) continue;
+        if (o.onTop && o.mutex === r.mutex && STACK.includes(oid)) close(oid);
+      }
+    }
+    r.open(root);
+    if (root) root.setAttribute('aria-hidden', 'false');
+    if (trigger instanceof HTMLElement) lastTrigger = trigger;
+    if (!STACK.includes(id)) STACK.push(id);
+    if (r.focusTrap && root) _trapFocus(root);
+    return true;
+  }
+
+  function close(id) {
+    const r = REG.get(id); if (!r) return false;
+    const root = r.root ? document.querySelector(r.root) : null;
+    r.close(root);
+    if (root) root.setAttribute('aria-hidden', 'true');
+    const i = STACK.indexOf(id); if (i >= 0) STACK.splice(i, 1);
+    // 焦点恢复:只在关掉栈顶时还原,避免中间 surface 关掉时焦点跳走
+    if (i === STACK.length /* 即:刚被移除的是顶 */ && lastTrigger && document.contains(lastTrigger)) {
+      try { lastTrigger.focus({ preventScroll: true }); } catch (e) {}
+    }
+    return true;
+  }
+
+  function toggle(id, trigger) {
+    return STACK.includes(id) ? close(id) : open(id, trigger);
+  }
+
+  function _trapFocus(root) {
+    // 找第一个可聚焦元素,焦点进入
+    const sel = 'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
+    const first = root.querySelector(sel);
+    if (first) { try { first.focus({ preventScroll: true }); } catch (e) {} }
+  }
+
+  // 单一 Esc 调度器(capture):顶层 surface 优先
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!STACK.length) return;
+    // input/textarea 焦点里 Esc 先 blur (避免误关弹窗)
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA') && rootOf(ae) === rootOfTop()) {
+      // 焦点在顶层弹窗的输入里 → 让 ui 关弹窗,而不是只 blur
+    }
+    const top = STACK[STACK.length - 1];
+    close(top);
+    e.preventDefault(); e.stopPropagation();
+  }, true);
+
+  function rootOf(el) {
+    for (const id of STACK) {
+      const r = REG.get(id); if (!r || !r.root) continue;
+      const root = document.querySelector(r.root);
+      if (root && (root === el || root.contains(el))) return root;
+    }
+    return null;
+  }
+  function rootOfTop() {
+    if (!STACK.length) return null;
+    const r = REG.get(STACK[STACK.length - 1]); if (!r || !r.root) return null;
+    return document.querySelector(r.root);
+  }
+
+  // 单一 outside-click 调度器(pointerdown,捕获阶段):点击顶层 surface 外部关闭
+  document.addEventListener('pointerdown', e => {
+    if (!STACK.length) return;
+    const topId = STACK[STACK.length - 1];
+    const r = REG.get(topId); if (!r || !r.root) return;
+    const root = document.querySelector(r.root);
+    if (!root) return;
+    // 例外:触发器(打开此 surface 的按钮)再点一次 = toggle 关闭
+    if (lastTrigger && (e.target === lastTrigger || lastTrigger.contains(e.target))) {
+      close(topId); return;
+    }
+    // 例外:点击同一 surface 内 → 不关
+    if (root.contains(e.target)) return;
+    // 例外:onTop + mutex 组的其它 trigger(让 ui.open 处理 toggle)
+    if (r.onTop && r.mutex && e.target.closest(`[data-ui-mutex="${r.mutex}"]`)) return;
+    close(topId);
+  }, true);
+
+  // Promise-based confirm(替代原生 confirm())
+  function confirm(opts = {}) {
+    return new Promise(resolve => {
+      const { title = '确认', body = '', danger = false, confirmText = '确定', cancelText = '取消' } = opts;
+      tpDialog(title, body || '<div class="note">是否继续?</div>', [
+        { t: cancelText, fn: () => resolve(false) },
+        { t: confirmText, danger, primary: true, fn: () => resolve(true) },
+      ]);
+    });
+  }
+
+  // 暴露给 E2E / smoke
+  globalThis.__ui = {
+    register, open, close, toggle, confirm,
+    _stack: () => STACK.slice(),
+    _push: (id) => { if (!STACK.includes(id)) STACK.push(id); },
+    _pop: (id) => { const i = STACK.indexOf(id); if (i >= 0) STACK.splice(i, 1); },
+  };
+
+  return { register, open, close, toggle, confirm };
+})();
+
+// ============================================================
+// 注册 13 个 surface 到 ui(Step 2)
+// ── 包装而非替换:open/close 仍是已有 helper,ui 只负责调度 Esc/outside-click/focus ──
+// ============================================================
+(function _uiRegisterSurfaces() {
+  // 顶栏 4 个下拉:mutex='ddrop',互斥(打开一个自动关其它)
+  const _ddList = ['ddAi', 'ddFile', 'ddImport', 'ddView'];
+  _ddList.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    ui.register(id, {
+      root: '#' + id,
+      open: () => { /* ddrop 已经有自己的 closeAllDD */ el.classList.add('open'); },
+      close: () => el.classList.remove('open'),
+      onTop: true, mutex: 'ddrop',
+    });
+    // 触发器挂 data-ui-mutex 让 outside-click 知道属于同组
+    const trg = el.querySelector('.dtrigger');
+    if (trg) trg.setAttribute('data-ui-mutex', 'ddrop');
+  });
+
+  // 右键菜单 #ctxMenu
+  const ctxMenu = document.getElementById('ctxMenu');
+  if (ctxMenu) ui.register('ctxMenu', {
+    root: '#ctxMenu',
+    open: () => { ctxMenu.style.display = 'block'; },
+    close: () => { ctxMenu.style.display = 'none'; },
+  });
+
+  // 主题卡片 ⋯ 菜单 #themeMenu(已有 openThemeMenu/closeThemeMenu)
+  const themeMenu = document.getElementById('themeMenu');
+  if (themeMenu) ui.register('themeMenu', {
+    root: '#themeMenu',
+    open: () => themeMenu.classList.add('open'),
+    close: () => themeMenu.classList.remove('open'),
+  });
+
+  // 外观(深/浅/跟随系统)#appearanceMenu
+  const apMenu = document.getElementById('appearanceMenu');
+  if (apMenu) ui.register('appearanceMenu', {
+    root: '#appearanceMenu',
+    open: () => { apMenu.style.display = 'block'; },
+    close: () => { apMenu.style.display = 'none'; },
+  });
+
+  // 模态对话框 #overlay(tpDialog/hideDialog 直接维护 ui 栈;但 ui Esc 调度器需要 close 函数)
+  ui.register('overlay', {
+    root: '#overlay',
+    open: () => {},       // tpDialog 已经设置 show
+    close: () => hideDialog(),
+    focusTrap: true,
+  });
+
+  // 命令面板 #cmdPalette
+  const cmdP = document.getElementById('cmdPalette');
+  if (cmdP) ui.register('cmdPalette', {
+    root: '#cmdPalette',
+    open: () => { cmdP.hidden = false; },
+    close: () => { cmdP.hidden = true; },
+    focusTrap: true,
+  });
+
+  // 引导气泡 #onboard
+  const onb = document.getElementById('onboard');
+  if (onb) ui.register('onboard', {
+    root: '#onboard',
+    open: () => { onb.hidden = false; },
+    close: () => { onb.hidden = true; },
+  });
+
+  // 大纲/文件/主题/模型 四个 rail 侧栏(都通过 _panelTabs 互斥,共享注册模板)
+  ['outlinePanel', 'filesPanel', 'themePanel', 'modelsPanel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    ui.register(id, {
+      root: '#' + id,
+      open: () => el.classList.add('open'),
+      close: () => el.classList.remove('open'),
+    });
+    const btn = document.querySelector(`[data-ui-trigger="${id}"]`);
+    if (!btn) {
+      // 自动发现:btnOutline/btnFiles/btnTheme 都是对应 panel 的触发器
+      const btnId = id === 'outlinePanel' ? 'btnOutline' : id === 'filesPanel' ? 'btnFiles' : id === 'themePanel' ? 'btnTheme' : null;
+      if (btnId) { const b = document.getElementById(btnId); if (b) b.setAttribute('data-ui-trigger', id); }
+    }
+  });
+})();
+// 性能面板 perfPanel 在 _setupPerfPanel 内部注册(避开 _perfVisible 的 TDZ)
 
 // ============================================================
 // 启动 + 动画循环
@@ -9601,6 +10493,107 @@ new ResizeObserver(fitCanvas).observe(canvasWrap);
 // ── 性能监控面板(F8 切换显示;默认隐藏) ──
 let _perfPanel = null, _perfBody = null, _perfVisible = false;
 let _perfFpsFrames = 0, _perfFpsStart = performance.now(), _perfFpsMs = 0;
+
+// ── 画质档(realtime / photo) ──
+// 参考 openfloorplan-main/js/project.js:14 RENDER_PRESETS
+// 摄影档:pixelRatio 2.5、shadow 4096、anisotropy 16、曝光略高,出图更精细;额外启用 SSAO 屏幕空间环境光遮蔽
+const RENDER_PRESETS = {
+  realtime: {
+    label: '实时',
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
+    shadowSize: 2048,
+    shadowBias: -0.0004,
+    anisotropy: 8,
+    exposure: 0.95,
+    ssao: false,
+  },
+  photo: {
+    label: '摄影',
+    pixelRatio: Math.min(devicePixelRatio, 2.5),
+    shadowSize: 4096,
+    shadowBias: -0.00035,
+    anisotropy: 16,
+    exposure: 1.1,
+    ssao: true,
+  },
+};
+// _composer / _ssaoPass 提前到 fitCanvas() 上方（fitCanvas 会在模块加载早期被调用）
+// 用 var 让声明 hoist 到模块顶端,解决 _disposeComposer / fitCanvas 在 _composer 声明前被调的问题
+var _composer = null;
+var _ssaoPass = null;
+
+// ── EffectComposer(SSAO 摄影档走这条) ──
+// 默认 realtime 不启用 composer,直接 renderer.render 减少开销;
+// photo 档才创建 composer + SSAOPass。Resize 时同步 composer.setSize。
+function _ensureComposer(ssaoEnabled) {
+  if (!ssaoEnabled) return null;
+  if (_composer) return _composer;
+  const size = renderer.getSize(new THREE.Vector2());
+  _composer = new EffectComposer(renderer);
+  _composer.setSize(size.x, size.y);
+  _composer.setPixelRatio(renderer.getPixelRatio());
+  const renderPass = new RenderPass(scene, activeCam);
+  _composer.addPass(renderPass);
+  // SSAOPass:kernelRadius/numSamples 保守些,避免低端机卡顿;minDistance/maxDistance 适配 2-3 米墙
+  _ssaoPass = new SSAOPass(scene, activeCam, size.x, size.y);
+  _ssaoPass.kernelRadius = 0.6;
+  _ssaoPass.minDistance = 0.001;
+  _ssaoPass.maxDistance = 0.05;
+  _ssaoPass.output = SSAOPass.OUTPUT.Default;
+  _composer.addPass(_ssaoPass);
+  _composer.addPass(new OutputPass());
+  globalThis._composer = _composer;
+  return _composer;
+}
+function _disposeComposer() {
+  if (!_composer) return;
+  _composer.passes.forEach(p => { try { p.dispose(); } catch (_) {} });
+  _composer = null;
+  _ssaoPass = null;
+  globalThis._composer = null;
+}
+let _renderPresetName = (() => { try { return localStorage.getItem('tp3d.renderPreset') || 'realtime'; } catch { return 'realtime'; } })();
+function applyRenderPreset(name) {
+  const p = RENDER_PRESETS[name];
+  if (!p) return;
+  _renderPresetName = name;
+  try { localStorage.setItem('tp3d.renderPreset', name); } catch (_) {}
+  renderer.setPixelRatio(p.pixelRatio);
+  if (keyLight && keyLight.shadow) {
+    keyLight.shadow.mapSize.set(p.shadowSize, p.shadowSize);
+    keyLight.shadow.bias = p.shadowBias;
+    if (keyLight.shadow.map) keyLight.shadow.map.dispose();
+    keyLight.shadow.map = null;
+  }
+  renderer.toneMappingExposure = p.exposure;
+  // SSAO:photo 档启用 EffectComposer + SSAOPass;realtime 直渲
+  if (p.ssao) _ensureComposer(true);
+  else _disposeComposer();
+  // 环境光强度:有 HDR 时更高,photo 档再加强;无 HDR 走 RoomEnvironment 默认
+  if (scene) {
+    const baseEi = _hdrEnvironment ? 0.7 : 0.55;
+    const boost = name === 'photo' ? 0.15 : 0;
+    scene.environmentIntensity = baseEi + boost;
+  }
+  // 全局 anisotropy + shadowMap 重建
+  renderer.shadowMap.needsUpdate = true;
+  _geomDirty = true;
+  // 让现有贴图刷新（材质走 applyMatVariant 重新设置时也会被更新；这里强制重建）
+  try { rebuild3D(); } catch (_) {}
+  const el = document.getElementById('perfPreset');
+  if (el) el.textContent = p.label;
+  // 各材质 anisotropy 调整：遍历现有墙/地/家具 mesh 重新设置
+  planGroup.traverse(function (o) {
+    if (o.isMesh && o.material) {
+      const applyTo = (m) => { if (m.map) m.map.anisotropy = p.anisotropy; if (m.normalMap) m.normalMap.anisotropy = p.anisotropy; if (m.roughnessMap) m.roughnessMap.anisotropy = p.anisotropy; if (m.alphaMap) m.alphaMap.anisotropy = p.anisotropy; };
+      if (Array.isArray(o.material)) o.material.forEach(applyTo);
+      else applyTo(o.material);
+    }
+  });
+  // 重新 fit canvas 触发 setSize
+  if (typeof fitCanvas === 'function') fitCanvas();
+}
+
 function _setupPerfPanel() {
   _perfPanel = document.getElementById('perfPanel');
   if (!_perfPanel) return;
@@ -9608,13 +10601,28 @@ function _setupPerfPanel() {
   document.getElementById('perfToggle')?.addEventListener('click', () => {
     _perfPanel.classList.toggle('collapsed');
   });
+  // 画质档切换:点击 perfPreset 行
+  document.getElementById('perfPreset')?.addEventListener('click', () => {
+    applyRenderPreset(_renderPresetName === 'realtime' ? 'photo' : 'realtime');
+  });
   // Ctrl+F8 快捷键切换显示(F8 已让给"放窗")
   addEventListener('keydown', e => {
     if (e.key === 'F8' && e.ctrlKey && !e.target.matches('input,textarea')) {
       e.preventDefault();
-      _perfVisible = !_perfVisible;
-      _perfPanel.hidden = !_perfVisible;
+      if (_perfVisible) ui.close('perfPanel');
+      else ui.open('perfPanel');
     }
+    // Ctrl+Shift+P 切换画质档
+    if (e.key === 'P' && e.ctrlKey && e.shiftKey && !e.target.matches('input,textarea')) {
+      e.preventDefault();
+      applyRenderPreset(_renderPresetName === 'realtime' ? 'photo' : 'realtime');
+    }
+  });
+  // 注册到 ui(Esc 关闭)
+  ui.register('perfPanel', {
+    root: '#perfPanel',
+    open: () => { _perfPanel.hidden = false; _perfVisible = true; },
+    close: () => { _perfPanel.hidden = true; _perfVisible = false; },
   });
 }
 
@@ -9631,6 +10639,8 @@ function _resolvedAppearance() {
 function _applyAppearance() {
   const cur = _resolvedAppearance();
   document.documentElement.setAttribute('data-theme', cur);
+  // 3D 舞台(清屏色/地面/网格)跟随主题,暗色下浅灰舞台与深色 UI 割裂
+  try { _applyStageTheme(cur); } catch (e) {}
   // 更新下拉里的 active 标记
   const menu = document.getElementById('appearanceMenu');
   if (menu) {
@@ -9639,37 +10649,52 @@ function _applyAppearance() {
     });
   }
 }
+// GridHelper 颜色烧在顶点色里,切换主题时整体重建;ground 只换材质色
+function _applyStageTheme(cur) {
+  const dark = cur === 'dark';
+  if (typeof scene !== 'undefined' && scene && scene.background) {
+    scene.background.set(dark ? 0x11161d : 0xeef1f5);
+  }
+  if (typeof ground !== 'undefined' && ground && ground.material) {
+    ground.material.color.set(dark ? 0x1c2430 : 0xe2e7eb);
+  }
+  if (typeof grid !== 'undefined' && grid) {
+    const pos = grid.position.clone();
+    const nm = grid.name;
+    grid.removeFromParent();
+    grid.geometry.dispose(); grid.material.dispose();
+    grid = new THREE.GridHelper(24, 48, dark ? 0x46536a : 0x9fb0be, dark ? 0x2e3947 : 0xcdd6dd);
+    grid.position.copy(pos);
+    grid.name = nm;
+    grid.material.transparent = true; grid.material.opacity = dark ? 0.5 : 0.4;
+    grid.material.depthWrite = false;      // 关闭深度写入:网格永远在物体之下
+    scene.add(grid);
+  }
+}
 function _setupAppearance() {
   _applyAppearance();
   const btn = document.getElementById('btnAppearance');
   const menu = document.getElementById('appearanceMenu');
   const panel = menu.querySelector('.ap-panel');
   if (!btn || !menu || !panel) return;
-  const isOpen = () => getComputedStyle(menu).display !== 'none';
   const close = () => { menu.style.display = 'none'; };
-  const show = () => { menu.style.display = 'block'; };
   btn.addEventListener('click', e => {
     e.stopPropagation();
-    if (isOpen()) { close(); return; }
-    show();
+    ui.toggle('appearanceMenu', btn);
   });
   panel.querySelectorAll('.ci[data-app]').forEach(el => {
     el.addEventListener('click', () => {
       _appearance = el.dataset.app;
       try { localStorage.setItem('tp3d.appearance', _appearance); } catch (e) {}
       _applyAppearance();
-      close();
+      ui.close('appearanceMenu');
     });
   });
-  document.getElementById('appearanceClose')?.addEventListener('click', close);
-  // Esc 关闭
-  document.addEventListener('keydown', e => {
-    if (isOpen() && e.key === 'Escape') close();
-  }, true);
+  document.getElementById('appearanceClose')?.addEventListener('click', () => ui.close('appearanceMenu'));
   // 点击遮罩(命中 menu 但不在 panel 内)关闭 — panel 子元素点击不关;
   // target 必须是 menu 自身(对应 ::before 背景),外部元素(如 #btnAppearance)不算
   menu.addEventListener('click', e => {
-    if (e.target === menu) close();
+    if (e.target === menu) ui.close('appearanceMenu');
   });
   // 跟随系统时,系统切换自动响应
   _appearanceMq.addEventListener?.('change', () => {
@@ -9721,7 +10746,13 @@ function animate() {
   const interact = (performance.now() - _lastInteractAt) < 250;
   const tweening = camTween != null;
   if (_needsRender || interact || tweening || dirty) {
-    renderer.render(scene, activeCam);
+    if (_composer) {
+      // composer 内部 pass 可能引用的 camera/场景变化,强制更新 SSAA/CamPass
+      _composer.passes.forEach(p => { if (p.scene && activeCam) { p.scene = scene; if (p.camera) p.camera = activeCam; } });
+      _composer.render();
+    } else {
+      renderer.render(scene, activeCam);
+    }
     _needsRender = false;
   }
   _updatePerfPanel();
@@ -9734,6 +10765,8 @@ function animate() {
 }
 _setupPerfPanel();
 _setupAppearance();
+// 启动时应用持久化的画质档(默认 realtime)
+applyRenderPreset(_renderPresetName);
 animate();
 
 // ============================================================
@@ -10257,29 +11290,28 @@ function openThemeMenu(key, anchorBtn) {
   // 内置:编辑 / 复制 / 导出 / [重置出厂(只有被改过才显示)] / [分隔 + 删除(隐藏)]
   // 自定义:编辑 / 复制 / 导出 / [分隔 + 删除]
   const items = [
-    { act: 'edit', icon: '✎', label: '编辑' },
-    { act: 'duplicate', icon: '⎘', label: '复制' },
-    { act: 'export', icon: '⤒', label: '导出' },
+    { act: 'edit', icon: ICON.edit, label: '编辑' },
+    { act: 'duplicate', icon: ICON.copy, label: '复制' },
+    { act: 'export', icon: ICON.export, label: '导出' },
   ];
   if (isBuiltin && hasOverride) {
     items.push({ sep: true });
-    items.push({ act: 'reset', icon: '↺', label: '恢复出厂' });
+    items.push({ act: 'reset', icon: ICON.reset, label: '恢复出厂' });
   }
   if (!isBuiltin) {
     items.push({ sep: true });
-    items.push({ act: 'delete', icon: '🗑', label: '删除', danger: true });
+    items.push({ act: 'delete', icon: ICON.trash, label: '删除', danger: true });
   }
   m.innerHTML = items.map(it => {
     if (it.sep) return '<div class="th-menu-sep"></div>';
-    return `<div class="th-menu-item${it.danger ? ' danger' : ''}" data-act="${it.act}" data-k="${key}">${it.icon} ${it.label}</div>`;
+    return `<div class="th-menu-item${it.danger ? ' danger' : ''}" data-act="${it.act}" data-k="${key}"><span class="th-menu-ico">${it.icon}</span>${it.label}</div>`;
   }).join('');
   // 定位:相对 anchorBtn 左下角
   const r = anchorBtn.getBoundingClientRect();
   m.style.left = r.right - 110 + 'px';
   m.style.top = (r.bottom + 4) + 'px';
-  m.classList.add('open');
-  m.setAttribute('aria-hidden', 'false');
   anchorBtn.classList.add('on');
+  ui.open('themeMenu', anchorBtn);
   // 事件
   m.querySelectorAll('.th-menu-item').forEach(it => {
     it.onclick = () => {
@@ -10293,10 +11325,6 @@ function openThemeMenu(key, anchorBtn) {
       else if (act === 'reset') themeReset(k);
     };
   });
-  // 点别处关闭
-  setTimeout(() => {
-    document.addEventListener('click', closeThemeMenu, { once: true });
-  }, 0);
 }
 function closeThemeMenu() {
   const m = document.getElementById('themeMenu');
@@ -10345,7 +11373,7 @@ function renderFilesPanel() {
     div.dataset.id = entry.id;
     div.innerHTML = `
       <div class="fp-row1">
-        <span class="fp-ico">${(entry._handle || entry._srv) ? '📄' : (entry._hasSnap ? '💾' : '⚠')}</span>
+        <span class="fp-ico">${(entry._handle || entry._srv) ? ICON.folder : (entry._hasSnap ? ICON.save : ICON.warn)}</span>
         <span class="fp-name"></span>
         <span class="fp-cur">当前</span>
       </div>
@@ -10365,20 +11393,145 @@ function renderFilesPanel() {
   }
 }
 
+// ── 模型管理面板(第 5 个 panel tab) ──
+// 浏览当前文档可用的全部模型,提供软删(仅从 FURN 移除)/ 硬删(同时清磁盘 GLB)两种操作。
+// 自定义模型(导入的)直接复用 deleteCustomAsset,已含元数据/IndexedDB/磁盘/实例 4 步清理。
+let _modelsSearch = '';
+function renderModelsPanel() {
+  const el = document.getElementById('modelsBody');
+  if (!el) return;
+  const q = (_modelsSearch || '').toLowerCase().trim();
+  const all = Object.entries(FURN);
+  const placed = {};
+  (doc.furniture || []).forEach(f => { placed[f.type] = (placed[f.type] || 0) + 1; });
+  const nBuilt  = all.filter(([, d]) => !d.custom).length;
+  const nCustom = all.filter(([, d]) =>  d.custom).length;
+  const groups = {};
+  for (const [k, d] of all) {
+    if (q && !d.name.toLowerCase().includes(q) && !k.toLowerCase().includes(q)) continue;
+    const c = d.cat || 'other';
+    (groups[c] = groups[c] || []).push([k, d]);
+  }
+  let total = 0;
+  let html = `
+    <input id="modelsSearch" class="fsearch" placeholder="🔍 搜索模型(中文 / 英文 key)…" value="${(_modelsSearch || '').replace(/"/g, '&quot;')}">
+    <div class="note" style="margin:6px 0">内置 ${nBuilt} · 自定义 ${nCustom} · 共 ${all.length}</div>`;
+  for (const cat of (typeof FURN_CAT_ORDER !== 'undefined' ? FURN_CAT_ORDER : [])) {
+    const items = groups[cat];
+    if (!items || !items.length) continue;
+    total += items.length;
+    html += `<details class="fcat" open><summary>${(FURN_CAT_NAMES && FURN_CAT_NAMES[cat]) || cat}<span class="cnt">${items.length}</span></summary><div class="fgrid">`;
+    items.forEach(([k, d]) => {
+      const n = placed[k] || 0;
+      const safeName = (d.name || k).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+      const isCustom = !!d.custom;
+      html += `<div class="fmodelRow${n ? ' inUse' : ''}" data-k="${k}">
+        <span class="em">${d.icon || ICON.cube}</span>
+        <span class="fname" title="${safeName} (key: ${k})">${safeName}</span>
+        <span class="fcat-badge">${(FURN_CAT_NAMES && FURN_CAT_NAMES[d.cat]) || d.cat || '其他'}</span>
+        ${n ? `<span class="cnt" title="已放置">×${n}</span>` : ''}
+        <span class="fmodelBtns">${isCustom
+          ? `<button class="btn sm danger" data-act="delCustom" data-k="${k}" data-id="${d.custom}" title="完整删除自定义模型(元数据 + 字节 + 磁盘 + 实例)">删除</button>`
+          : `<button class="btn sm" data-act="hide" data-k="${k}" title="从当前文档隐藏,GLB 文件保留在磁盘">隐藏</button>
+             <button class="btn sm danger" data-act="del" data-k="${k}" title="从库移除并删除 GLB 文件">${d.file ? '删 GLB' : '删除'}</button>`}</span>
+      </div>`;
+    });
+    html += `</div></details>`;
+  }
+  if (!total) html += `<div class="note">无匹配模型</div>`;
+  el.innerHTML = html;
+  const si = document.getElementById('modelsSearch');
+  if (si) {
+    let comp = false;
+    si.addEventListener('compositionstart', () => { comp = true; });
+    si.addEventListener('compositionend', e => { comp = false; _modelsSearch = e.target.value; renderModelsPanel(); });
+    si.oninput = e => { if (comp) return; _modelsSearch = e.target.value; renderModelsPanel(); };
+  }
+  el.querySelectorAll('[data-act]').forEach(btn => {
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      const act = btn.dataset.act, k = btn.dataset.k, id = btn.dataset.id;
+      if (act === 'delCustom' && id) return deleteCustomAsset(id);
+      if (act === 'hide') return confirmHideBuiltIn(k);
+      if (act === 'del')  return confirmDeleteBuiltIn(k, true);
+    };
+  });
+}
+
+function confirmHideBuiltIn(key) {
+  const d = FURN[key];
+  if (!d) return;
+  const used = (doc.furniture || []).filter(f => f.type === key).length;
+  const fileHint = d.file
+    ? `<br>GLB 文件 <code>libs/items/${d.file}/model.glb</code> 仍保留在磁盘上。`
+    : '<br>该模型是参数化生成,无磁盘文件。';
+  tpDialog('隐藏内置模型', `
+    <div class="note">将从当前文档移除「${d.name}」(key: <code>${key}</code>)${used ? `,已放置的 ${used} 件实例会从场景中消失` : ''}。${fileHint}<br>可通过修改源码重新引入。</div>`,
+    [
+      { t: '取消' },
+      { t: '隐藏', fn() { doHideBuiltIn(key); } },
+    ]);
+}
+function doHideBuiltIn(key) {
+  const d = FURN[key];
+  if (!d) return;
+  pushUndo({ furnRestore: { [key]: d } });
+  doc.furniture = (doc.furniture || []).filter(f => f.type !== key);
+  delete FURN[key];
+  if (d.file) _glbCache.delete(key);
+  if (furnType === key) furnType = null;
+  rebuild(); refreshProps(); markUnsaved(true);
+  if (typeof renderModelsPanel === 'function' && _panelTabs && _panelTabs.active === 'models') renderModelsPanel();
+  flash(`已从库移除「${d.name}」`, 'success');
+}
+function confirmDeleteBuiltIn(key, hard) {
+  const d = FURN[key];
+  if (!d) return;
+  const used = (doc.furniture || []).filter(f => f.type === key).length;
+  const fileNote = d.file
+    ? `<br>磁盘文件 <code>libs/items/${d.file}/model.glb</code> 将被永久删除。`
+    : '<br>该模型是参数化生成,无磁盘文件可删。';
+  tpDialog('删除内置模型', `
+    <div class="note">将删除「${d.name}」${used ? `及其已放置的 ${used} 件实例` : ''}。${fileNote}<br>此操作可通过撤销恢复 FURN 表(磁盘文件无法恢复)。</div>`,
+    [
+      { t: '取消' },
+      { t: d.file ? '删除 GLB' : '删除', danger: true, fn: () => doDeleteBuiltIn(key, hard) },
+    ]);
+}
+async function doDeleteBuiltIn(key, hard) {
+  const d = FURN[key];
+  if (!d) return;
+  pushUndo({ furnRestore: { [key]: d } });
+  doc.furniture = (doc.furniture || []).filter(f => f.type !== key);
+  delete FURN[key];
+  if (d.file) _glbCache.delete(key);
+  if (furnType === key) furnType = null;
+  rebuild(); refreshProps(); markUnsaved(true);
+  if (hard && d.file) {
+    try {
+      const r = await fetch('/api/items/del?dir=' + encodeURIComponent(d.file));
+      const j = await r.json();
+      if (!j.ok) toast('磁盘文件删除失败:' + (j.error || ''), 'error', 4000);
+    } catch (e) { toast('磁盘文件删除请求失败:' + e.message, 'error', 4000); }
+  }
+  if (typeof renderModelsPanel === 'function' && _panelTabs && _panelTabs.active === 'models') renderModelsPanel();
+  flash(`已删除「${d.name}」`, 'success');
+}
+
 function _showFileContextMenu(x, y, entry) {
   const m = document.getElementById('ctxMenu');
   if (!m) return;
   m.innerHTML = '';
   const items = [
-    { t: '打开', icon: '⤓', fn: () => switchToEntry(entry.id) },
-    { t: '复制文件名', icon: '⎘', fn: async () => {
+    { t: '打开', icon: ICON.folder, fn: () => switchToEntry(entry.id) },
+    { t: '复制文件名', icon: ICON.copy, fn: async () => {
       try { await navigator.clipboard.writeText(entry.fileName || entry.name); toast('文件名已复制', 'success', 1200); }
       catch (e) { toast('复制失败:请手动选择', 'warn', 1500); }
     }},
-    { t: '重命名', icon: '✎', fn: () => _renameEntry(entry) },
+    { t: '重命名', icon: ICON.edit, fn: () => _renameEntry(entry) },
     entry._srv
-      ? { t: '删除文件(含磁盘)', icon: '🗑', danger: true, fn: () => _removeEntry(entry) }
-      : { t: '从列表移除(不删磁盘文件)', icon: '✕', danger: true, fn: () => _removeEntry(entry) },
+      ? { t: '删除文件(含磁盘)', icon: ICON.trash, danger: true, fn: () => _removeEntry(entry) }
+      : { t: '从列表移除(不删磁盘文件)', icon: ICON.x, danger: true, fn: () => _removeEntry(entry) },
   ];
   for (const it of items) {
     const b = document.createElement('button');
@@ -10395,7 +11548,7 @@ function _showFileContextMenu(x, y, entry) {
 
 function _renameEntry(entry) {
   tpDialog('重命名', `
-    <div class="frow"><label>显示名</label><input id="rnName" type="text" value=""></div>
+    <div class="frow"><label>显示名</label><input id="rnName" type="text" value="${(entry.name || '').replace(/"/g, '"')}"></div>
     <div class="note">提示:这只会改变列表中显示的名称,真实文件名通过"另存为"才能改。</div>`,
     [
       { t: '保存', fn: () => {
@@ -10428,12 +11581,8 @@ function _renameEntry(entry) {
         doRename();
       }},
       { t: '取消' },
-    ]);
-  // 启动后填默认值
-  setTimeout(() => {
-    const inp = document.getElementById('rnName');
-    if (inp) { inp.value = entry.name; inp.select(); }
-  }, 50);
+    ],
+    { focusTo: '#rnName' });  // 自动 focus + select
 }
 
 async function _removeEntry(entry) {
@@ -10521,8 +11670,8 @@ async function maybeMigrateOldPlan() {
 
 // 让 doc 变更函数标记 dirty:hook 进 pushUndo,这样所有"修改类"动作(undo 不算)都会标脏
 const _origPushUndo = pushUndo;
-pushUndo = function () {
-  _origPushUndo();
+pushUndo = function (furnDelta) {
+  _origPushUndo(furnDelta);
   // 注意:undo/redo 自己 pushUndo 时也会被 hook — 显式跳过
   if (_inUndoRedo) return;
   markUnsaved(true);
@@ -10662,7 +11811,451 @@ if (typeof ResizeObserver !== 'undefined') {
   new ResizeObserver(() => updateOrthoFrustum()).observe(renderer.domElement);
 }
 
+// ── 后端连通性自检：加载时探测 /api/ai/style 是否可达;不在 8765 上时给顶部警告条 ──
+(async () => {
+  const expected = ['localhost:8765', '127.0.0.1:8765', 'localhost:8137', '127.0.0.1:8137'];
+  const here = location.host;
+  // 只在用户怀疑的环境提示一次,免打扰
+  if (!expected.includes(here)) {
+    setTimeout(() => {
+      const banner = document.createElement('div');
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;padding:8px 16px;background:#fef3c7;border-bottom:2px solid #f59e0b;color:#92400e;font-size:13px;text-align:center;box-shadow:0 2px 4px rgba(0,0,0,.1)';
+      banner.innerHTML = `⚠ <b>后端 API 不在此端口</b> — 当前 origin 是 <code>${location.origin}</code>,但 _serve.py 通常跑在 <code>http://localhost:8765</code>。<br>AI / 文件 API 会 404。请确认浏览器地址栏是 <code>http://localhost:8765/</code> 而非 vite (5173) 或别的 dev server。`;
+      document.body.appendChild(banner);
+    }, 1500);
+    return;
+  }
+  // 在 8765 上时主动 ping 一次
+  try {
+    const r = await fetch(location.origin + '/api/ai/style', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: '__ping__' }),  // 服务端会因 prompt 空/超短略过 AI
+    });
+    // 不在意返回内容,只要网络通即可
+    console.log('[backend ping]', r.status, location.origin);
+  } catch (e) {
+    console.warn('[backend ping] 网络错误:', e);
+  }
+})();
+
 // 启动迁移提示(延迟到首帧后,避免阻塞)
 setTimeout(() => { maybeMigrateOldPlan(); }, 800);
 
 // 兜底删除:ctxMenu 显示/隐藏已内联在 _showFileContextMenu 中
+
+// ============================================================
+// AI 户型生成:文字描述 → MiniMax 生成墙体/门窗/家具 → 新建文件载入
+// 服务端: _serve.py /api/ai/generate (密钥留在本机,不进浏览器)
+// 非破坏性:总是新建户型文件,不影响当前方案
+// ============================================================
+const AI_EXCLUDE_RE = /^(med|nav)|^downStair$|^wallStruct$|^pillar$|^column$|^parkingSpot$|^hydrant$|^exitSign$|^sprinkler$|^fireAlarm$|^fireDetector$|^smokeDetector$|^alarmKeypad$|^electricPanel$|^evWallCharger$|^thermostat$|fence|^hedge$|^tree$|^firTree$|^palm$|^bush$|^carToy$|^tesla$|^scooter$|^skate$|^signBoard$|^navSplitLR$|^navGo/;
+const AI_CAT_OK = new Set(['bed', 'bath', 'kitchen', 'furn', 'light', 'media', 'misc', 'hvac', 'sport', 'stairs', 'other']);
+
+function _aiCatalog() {
+  const out = [];
+  for (const [type, def] of Object.entries(FURN)) {
+    if (!def || def.cat === 'custom') continue;
+    if (!AI_CAT_OK.has(def.cat)) continue;
+    if (AI_EXCLUDE_RE.test(type)) continue;
+    const w = +def.w || 0, d = +def.d || 0;
+    if (w < 0.15 || d < 0.05 || w > 3.6 || d > 3.6) continue;   // 尺寸异常剔除(原 airConditioner w=1000 已修复)
+    out.push([type, def.name || type, Math.round(w * 100) / 100, Math.round(d * 100) / 100]);
+  }
+  return out;
+}
+
+let _aiLastPrompt = '';
+function openAiDesign() {
+  _aiLastPrompt = _aiLastPrompt || '';
+  tpDialog('✨ AI 生成户型', `
+    <div class="note" style="margin-bottom:8px">输入文字描述（面积、房间数、朝向、家具偏好），AI 生成墙体、门窗与家具，并<strong>新建</strong>一个户型文件，不影响当前方案。耗时约 30~90 秒。</div>
+    <textarea id="aiGenText" rows="4" style="width:100%;box-sizing:border-box;resize:vertical" placeholder="例如：两室一厅 80 平，南向客厅带阳台，主卧朝南带独立卫生间，次卧朝北，开放式厨房">${_aiLastPrompt.replace(/</g, '&lt;')}</textarea>
+    <div id="aiGenChips" style="margin:8px 0 4px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn" data-t="两室一厅 80 平，南向客厅带阳台，主卧朝南带独立卫生间，次卧朝北" style="font-size:12px;padding:2px 10px">两室一厅 80㎡</button>
+      <button class="btn" data-t="一室一厅 45 平小公寓，开放式厨房，带玄关和独立卫生间" style="font-size:12px;padding:2px 10px">一室一厅 45㎡</button>
+      <button class="btn" data-t="三室两厅 120 平，南北通透，客厅朝南带阳台，带书房和储物间" style="font-size:12px;padding:2px 10px">三室两厅 120㎡</button>
+    </div>
+    <div id="aiGenStatus" class="note" style="min-height:18px;white-space:pre-wrap"></div>
+  `, [
+    { t: '关闭' },
+    { t: '✨ 生成户型', keep: true, fn: () => _aiStartGenerate() },
+  ], { focusTo: '#aiGenText' });
+  const box = overlay.querySelector('#aiGenText');
+  overlay.querySelectorAll('#aiGenChips .btn').forEach(ch => {
+    ch.onclick = () => { box.value = ch.dataset.t; box.focus(); };
+  });
+}
+
+async function _aiStartGenerate() {
+  const box = overlay.querySelector('#aiGenText');
+  const status = overlay.querySelector('#aiGenStatus');
+  if (!box || !status) return;
+  const prompt = box.value.trim();
+  if (!prompt) { status.textContent = '⚠ 请先输入户型描述'; return; }
+  _aiLastPrompt = prompt;
+  const genBtn = [...overlay.querySelectorAll('.foot .btn')].find(b => b.textContent.includes('生成户型'));
+  if (genBtn) { genBtn.disabled = true; genBtn.textContent = '生成中…'; }
+  const t0 = Date.now();
+  const timer = setInterval(() => {
+    if (status) status.textContent = `⏳ AI 正在设计户型… 已用 ${Math.round((Date.now() - t0) / 1000)} 秒（首次生成可能需要 1 分钟以上）`;
+  }, 1000);
+  status.textContent = '⏳ AI 正在设计户型…';
+  try {
+    const r = await fetch('/api/ai/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, catalog: _aiCatalog() }),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    await _aiApplyDoc(j.doc);
+    clearInterval(timer);
+    hideDialog();
+    const st = j.stats || {};
+    flash(`AI 已生成「${j.doc.name}」:${st.walls} 面墙 · ${st.openings} 个门窗 · ${st.furniture} 件家具${st.droppedFurniture ? `(丢弃未知类型 ${st.droppedFurniture} 件)` : ''} · ${st.elapsed || '?'}s`, 'success');
+    if (j.summary) console.info('[AI] ' + j.summary);
+  } catch (e) {
+    clearInterval(timer);
+    status.textContent = '❌ ' + (e?.message || e) + '\n可调整描述后重试。';
+    toast('AI 生成失败:' + (e?.message || e), 'error', 8000);
+  } finally {
+    if (genBtn) { genBtn.disabled = false; genBtn.textContent = '✨ 生成户型'; }
+  }
+}
+
+async function _aiApplyDoc(gen) {
+  const walls = Array.isArray(gen.walls) ? gen.walls : [];
+  const furniture = Array.isArray(gen.furniture) ? gen.furniture : [];
+  const floors = Array.isArray(gen.floors) ? gen.floors : [];
+  const name = String(gen.name || 'AI户型').slice(0, 40);
+  // 保护当前未保存内容(与 switchToEntry 一致),再整体替换 doc
+  if (currentFileId) await snapPut(currentFileId);
+  undoStack.length = 0; redoStack.length = 0;
+  doc = {
+    name,
+    wallH: +gen.wallH || 2.75,
+    levels: Array.isArray(gen.levels) && gen.levels.length ? gen.levels : [{ name: '1F', elev: 0 }],
+    walls, floors, furniture,
+    stairs: [], hidden: {},
+  };
+  sel = null;
+  try { normDoc(); } catch (e) { console.warn('[ai] normDoc:', e); }
+  const id = newId();
+  const srv = await srvProbe();
+  let fname = safeFileName(doc.name) + '.tp3d.json';
+  if (srv) {
+    try {
+      const names = new Set((await srvList()).map(f => f.name));
+      let n = 2;
+      while (names.has(fname)) fname = `${safeFileName(doc.name)}-${n++}.tp3d.json`;
+    } catch (e) { /* 重名检测失败就用原名 */ }
+    filesIndex.unshift({ id, name: doc.name, fileName: fname, updatedAt: Date.now(), _srv: true });
+  } else {
+    filesIndex.unshift({ id, name: doc.name, updatedAt: Date.now() });
+  }
+  saveFilesIndex();
+  currentFileId = id; currentHandle = null;
+  rebuild(); refreshProps(); _syncTopbarKb(); markUnsaved(true); renderFilesPanel();
+  if (srv) {
+    try {
+      await srvPut(fname, _buildFileJSON());
+      await snapPut(id);
+      markUnsaved(false);
+    } catch (e) {
+      toast('AI 户型已生成,但写入文件失败:' + (e?.message || e), 'error', 6000);
+    }
+  } else {
+    await snapPut(id);
+  }
+  try { fitViewToContent(); } catch (e) { /* 视图自适应失败不阻断 */ }
+}
+
+// 注册入口:顶栏「✨AI」菜单 + 命令面板(置顶,免滚动)
+const _aiGenBtn = document.getElementById('btnAiGen');
+if (_aiGenBtn) _aiGenBtn.onclick = () => openAiDesign();
+const _aiStyleBtn = document.getElementById('btnAiStyle');
+if (_aiStyleBtn) _aiStyleBtn.onclick = () => openAiStyle();
+const _aiFurnBtn = document.getElementById('btnAiFurn');
+if (_aiFurnBtn) _aiFurnBtn.onclick = () => openAiFurniture();
+if (typeof _CMDS !== 'undefined') {
+  _CMDS.unshift({ cat: 'AI', name: '✨ AI 生成户型…', fn: () => openAiDesign() });
+  _CMDS.unshift({ cat: 'AI', name: '🎨 AI 装修风格…', fn: () => openAiStyle() });
+  _CMDS.unshift({ cat: 'AI', name: '🪑 AI 生成 3D 家具…', fn: () => openAiFurniture() });
+}
+globalThis.openAiDesign = openAiDesign;   // 测试/控制台入口
+globalThis.openAiStyle = openAiStyle;     // 测试入口
+globalThis.openAiFurniture = openAiFurniture; // 测试入口
+globalThis._aiStyleLastThemes = _aiStyleLastThemes;
+globalThis._applyAiStyle = _applyAiStyle;
+globalThis.THEMES = THEMES;
+globalThis._commitImportedGLB = _commitImportedGLB;
+
+// ── AI 生成 3D 家具（/api/ai/furniture-meta + 用户上传 GLB）：
+// 弹窗 → 输入描述 → AI 输出元数据(name/cat/icon/w/d/h/yOff/desc) →
+// 用户上传/拖入 GLB → return → _commitImportedGLB 完成入库+放置 ──
+var _aiFurnLastMeta = null;
+var _aiFurnLastPrompt = '';
+function openAiFurniture() {
+  _aiFurnLastMeta = null;
+  _aiFurnLastPrompt = _aiFurnLastPrompt || '';
+  tpDialog('🪑 AI 生成 3D 家具', `
+    <div class="note" style="margin-bottom:8px">描述想要的家具，AI 生成元数据；你再上传 GLB 模型文件（来自 blender-mcp / Sketchfab / 自建）自动入库并进入放置模式。耗时约 3~10 秒。</div>
+    <textarea id="aiFurnText" rows="2" style="width:100%;box-sizing:border-box;resize:vertical" placeholder="例如：1920s 工业风金属台灯，带锥形灯罩">${_aiFurnLastPrompt.replace(/</g, '&lt;')}</textarea>
+    <div id="aiFurnChips" style="margin:8px 0 4px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn" data-t="1920s 工业风金属台灯,带锥形灯罩" style="font-size:12px;padding:2px 10px">工业台灯</button>
+      <button class="btn" data-t="北欧风原木圆餐桌,直径 1.2 米" style="font-size:12px;padding:2px 10px">北欧餐桌</button>
+      <button class="btn" data-t="极简现代落地灯,银色金属+白色布罩" style="font-size:12px;padding:2px 10px">极简落地灯</button>
+    </div>
+    <div id="aiFurnStatus" class="note" style="min-height:18px;white-space:pre-wrap;margin-top:6px"></div>
+    <div id="aiFurnMeta" style="margin-top:6px"></div>
+    <div id="aiFurnDrop" class="dropzone" style="display:none">📦 拖入 GLB 文件,或点击下方按钮选择</div>
+  `, [
+    { t: '关闭' },
+    { t: '🤖 AI 生成元数据', keep: true, fn: () => _aiStartFurnMeta() },
+    { t: '📁 选择 GLB 文件', fn: () => _aiPickFurnFile() },
+  ], { focusTo: '#aiFurnText' });
+  const box = overlay.querySelector('#aiFurnText');
+  overlay.querySelectorAll('#aiFurnChips .btn').forEach(ch => {
+    ch.onclick = () => { box.value = ch.dataset.t; box.focus(); };
+  });
+  // 拖拽支持
+  const drop = overlay.querySelector('#aiFurnDrop');
+  if (drop) {
+    overlay.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragover'); });
+    overlay.addEventListener('dragleave', () => { drop.classList.remove('dragover'); });
+    overlay.addEventListener('drop', e => {
+      e.preventDefault();
+      drop.classList.remove('dragover');
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) _aiFurnHandleFile(f);
+    });
+  }
+}
+async function _aiStartFurnMeta() {
+  const box = overlay.querySelector('#aiFurnText');
+  const status = overlay.querySelector('#aiFurnStatus');
+  const metaDiv = overlay.querySelector('#aiFurnMeta');
+  const drop = overlay.querySelector('#aiFurnDrop');
+  if (!box || !status) return;
+  const prompt = box.value.trim();
+  if (!prompt) { status.textContent = '⚠ 请先输入家具描述'; return; }
+  _aiFurnLastPrompt = prompt;
+  const genBtn = [...overlay.querySelectorAll('.foot .btn')].find(b => b.textContent.includes('AI 生成元数据'));
+  if (genBtn) { genBtn.disabled = true; genBtn.textContent = '生成中…'; }
+  const t0 = Date.now();
+  const timer = setInterval(() => {
+    if (status) status.textContent = `⏳ AI 正在设计家具… 已用 ${Math.round((Date.now() - t0) / 1000)} 秒`;
+  }, 1000);
+  status.textContent = '⏳ AI 正在设计家具…';
+  if (metaDiv) metaDiv.innerHTML = '';
+  if (drop) drop.style.display = 'none';
+  try {
+    const url = location.origin + '/api/ai/furniture-meta';
+    console.log('[AI furniture] POST', url);
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      const detail = `[HTTP ${r.status} ${r.statusText}] ${url} → ${j.error || 'unknown'}`;
+      throw new Error(detail);
+    }
+    _aiFurnLastMeta = j.meta;
+    clearInterval(timer);
+    status.textContent = `✓ AI 已生成元数据（${j.elapsed || '?'}s）— 现在上传 GLB 模型文件完成入库`;
+    if (metaDiv) {
+      const m = j.meta;
+      metaDiv.innerHTML = `<div class="aiMetaCard">
+        <div class="amc-head">
+          <span>${m.icon || ICON.cube}</span>
+          <span class="amc-name">${m.name}</span>
+          <span class="amc-cat">${m.cat}</span>
+        </div>
+        <div class="amc-line">${m.desc || ''}</div>
+        <div class="amc-line">AI 建议尺寸：${m.w.toFixed(2)} × ${m.d.toFixed(2)} × ${m.h.toFixed(2)} m（你上传后会被 GLB 实际测量值覆盖）</div>
+      </div>`;
+    }
+    if (drop) drop.style.display = 'block';
+  } catch (e) {
+    clearInterval(timer);
+    status.textContent = '❌ ' + (e?.message || e) + '\n可调整描述后重试。';
+    toast('AI 生成失败:' + (e?.message || e), 'error', 8000);
+  } finally {
+    if (genBtn) { genBtn.disabled = false; genBtn.textContent = '🤖 AI 生成元数据'; }
+  }
+}
+function _aiPickFurnFile() {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.glb,.gltf,model/gltf-binary,model/gltf+json';
+  inp.onchange = () => {
+    const f = inp.files && inp.files[0];
+    if (f) _aiFurnHandleFile(f);
+  };
+  inp.click();
+}
+async function _aiFurnHandleFile(file) {
+  if (!_aiFurnLastMeta) {
+    toast('请先点「AI 生成元数据」拿到 AI 元数据', 'warn', 4000);
+    return;
+  }
+  const status = overlay.querySelector('#aiFurnStatus');
+  if (status) status.textContent = `⏳ 解析 GLB ${file.name} (${(file.size / 1024).toFixed(0)} KB)...`;
+  let buf;
+  try { buf = await file.arrayBuffer(); }
+  catch (e) { toast('读取文件失败：' + e.message, 'error', 5000); return; }
+  let measured;
+  try { measured = await _measureModelBytes(buf); }
+  catch (e) { toast('解析模型失败：' + e.message, 'error', 6000); return; }
+  // 用 AI 元数据 + 实际测量的 GLB 尺寸入库
+  const m = _aiFurnLastMeta;
+  // AI 给的尺寸仅作参考；以 GLB 实测为准；scale 自动检测大模型
+  const maxDim = Math.max(measured.w, measured.d, measured.h) || 1;
+  const scale = maxDim > 100 ? 0.001 : (maxDim > 10 ? 0.01 : 1);
+  const meta = await _commitImportedGLB({
+    buf, file,
+    name: m.name,
+    cat: m.cat,
+    icon: m.icon,
+    scale,
+    yOff: m.yOff || 0,
+    measured,
+  });
+  if (meta) {
+    if (status) status.textContent = `✓ 已入库「${m.name}」${m.icon} ${meta.w.toFixed(2)}×${meta.d.toFixed(2)}×${meta.h.toFixed(2)} m`;
+    toast(`AI 家具「${m.name}」已入库,可点击放置`, 'success', 3000);
+    setTimeout(() => hideDialog(), 800);
+  }
+}
+
+// ── AI 装修主题（/api/ai/style）：弹窗 → 生成 4 候选 → 选一个应用 ──
+// var 而非 let：openAiStyle 可能被早期 _setupAppearance 等间接调用,需要 hoist
+var _aiStyleLastPrompt = '';
+var _aiStyleLastThemes = [];   // 上次生成的 4 个主题（[{name, icon, desc, wall, floor, door, window}, ...]）
+function openAiStyle() {
+  _aiStyleLastPrompt = _aiStyleLastPrompt || '';
+  tpDialog('🎨 AI 装修风格', `
+    <div class="note" style="margin-bottom:8px">输入风格关键词（如「北欧极简」「工业复古」「日式原木」「现代轻奢」），生成 4 个候选，可预览后择一应用到当前户型。</div>
+    <textarea id="aiStyleText" rows="2" style="width:100%;box-sizing:border-box;resize:vertical" placeholder="例如：北欧极简，主色调白+浅木">${_aiStyleLastPrompt.replace(/</g, '&lt;')}</textarea>
+    <div id="aiStyleChips" style="margin:8px 0 4px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn" data-t="北欧极简,白墙+浅木,冷色调" style="font-size:12px;padding:2px 10px">北欧极简</button>
+      <button class="btn" data-t="日式原木,米白+深木,禅意" style="font-size:12px;padding:2px 10px">日式原木</button>
+      <button class="btn" data-t="工业复古,水泥灰+铁艺" style="font-size:12px;padding:2px 10px">工业复古</button>
+      <button class="btn" data-t="现代轻奢,深灰+金属" style="font-size:12px;padding:2px 10px">现代轻奢</button>
+    </div>
+    <div id="aiStyleStatus" class="note" style="min-height:18px;white-space:pre-wrap;margin-top:6px"></div>
+    <div id="aiStyleCards" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px"></div>
+  `, [
+    { t: '关闭' },
+    { t: '🎨 生成主题', keep: true, fn: () => _aiStartStyle() },
+    { t: '↺ 撤销应用', fn: () => { try { undo(); hideHint(); toast('已撤销最近一次主题应用', 'info'); } catch (e) {} } },
+  ], { focusTo: '#aiStyleText' });
+  const box = overlay.querySelector('#aiStyleText');
+  overlay.querySelectorAll('#aiStyleChips .btn').forEach(ch => {
+    ch.onclick = () => { box.value = ch.dataset.t; box.focus(); };
+  });
+  // 二次打开时还原上次候选
+  if (_aiStyleLastThemes.length) _renderAiStyleCards(_aiStyleLastThemes);
+}
+async function _aiStartStyle() {
+  const box = overlay.querySelector('#aiStyleText');
+  const status = overlay.querySelector('#aiStyleStatus');
+  const cards = overlay.querySelector('#aiStyleCards');
+  if (!box || !status) return;
+  const prompt = box.value.trim();
+  if (!prompt) { status.textContent = '⚠ 请先输入风格关键词'; return; }
+  _aiStyleLastPrompt = prompt;
+  const genBtn = [...overlay.querySelectorAll('.foot .btn')].find(b => b.textContent.includes('生成主题'));
+  if (genBtn) { genBtn.disabled = true; genBtn.textContent = '生成中…'; }
+  const t0 = Date.now();
+  const timer = setInterval(() => {
+    if (status) status.textContent = `⏳ AI 正在设计主题… 已用 ${Math.round((Date.now() - t0) / 1000)} 秒`;
+  }, 1000);
+  status.textContent = '⏳ AI 正在设计主题…';
+  if (cards) cards.innerHTML = '';
+  try {
+    const url = location.origin + '/api/ai/style';
+    console.log('[AI style] POST', url);
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      const detail = `[HTTP ${r.status} ${r.statusText}] ${url} → ${j.error || 'unknown'}`;
+      throw new Error(detail);
+    }
+    _aiStyleLastThemes = j.themes || [];
+    globalThis._aiStyleLastThemes = _aiStyleLastThemes; // 同步 globalThis 引用
+    clearInterval(timer);
+    status.textContent = `✓ 生成 ${_aiStyleLastThemes.length} 个候选（${j.elapsed || '?'}s）— 点击下方卡片预览并应用`;
+    _renderAiStyleCards(_aiStyleLastThemes);
+  } catch (e) {
+    clearInterval(timer);
+    status.textContent = '❌ ' + (e?.message || e) + '\n可调整关键词后重试。';
+    toast('AI 生成失败:' + (e?.message || e), 'error', 8000);
+  } finally {
+    if (genBtn) { genBtn.disabled = false; genBtn.textContent = '🎨 生成主题'; }
+  }
+}
+function _renderAiStyleCards(themes) {
+  // 同 _applyAiStyle：保证模块级缓存与 globalThis 同步
+  _aiStyleLastThemes = themes;
+  globalThis._aiStyleLastThemes = themes;
+  const cards = overlay.querySelector('#aiStyleCards');
+  if (!cards) return;
+  cards.innerHTML = themes.map((t, i) => {
+    const wallC = t.wall && t.wall.base || '#ddd';
+    const floorC = t.floor && t.floor.color || '#eee';
+    const doorC = t.door && t.door.leafColor || wallC;
+    const winC = t.window && t.window.leafColor || wallC;
+    const wTex = (t.wall && t.wall.tex) || '';
+    const fTex = (t.floor && t.floor.tex) || '';
+    const dTex = (t.door && t.door.leafTex) || '';
+    return `<div class="aiStyleCard" data-i="${i}">
+      <div class="asc-head">
+        <div class="asc-icon">${t.icon || '◯'}</div>
+        <div class="asc-name">${t.name}</div>
+      </div>
+      <div class="asc-desc">${t.desc || ''}</div>
+      <div class="asc-swatch-lg">
+        <div title="墙 ${wTex}" style="flex:2;background:${wallC}"></div>
+        <div title="地 ${fTex}" style="flex:1;background:${floorC}"></div>
+      </div>
+      <div class="asc-swatch-sm">
+        <div title="门 ${dTex}" style="flex:1;background:${doorC}"></div>
+        <div title="窗 ${winC}" style="flex:1;background:${winC}"></div>
+      </div>
+      <button class="btn" data-i="${i}" style="font-size:12px;padding:4px 0">应用此主题</button>
+    </div>`;
+  }).join('');
+  cards.querySelectorAll('.aiStyleCard').forEach(card => {
+    const i = +card.dataset.i;
+    card.querySelector('button').onclick = (e) => { e.stopPropagation(); _applyAiStyle(i); };
+  });
+}
+function _applyAiStyle(idx) {
+  // 优先从 globalThis 取（_aiStartStyle 写入的引用在 module 出口处 snapshot 后失效,
+  // 测试场景或非弹窗触发需读 globalThis 同步状态）
+  const themes = (_aiStyleLastThemes && _aiStyleLastThemes.length) ? _aiStyleLastThemes : (globalThis._aiStyleLastThemes || []);
+  const t = themes[idx];
+  if (!t) return;
+  // AI 主题 = THEMES dict 的临时条目（key = ai_<时间戳>）,与 THEMES_BUILTIN 同结构
+  const key = 'ai_' + Date.now();
+  THEMES[key] = {
+    n: t.name, icon: t.icon || '🎨',
+    desc: t.desc || '',
+    wall:   { base: t.wall.base, tex: t.wall.tex || '' },
+    floor:  { color: t.floor.color, tex: t.floor.tex || '' },
+    door:   { leafColor: t.door.leafColor, leafTex: t.door.leafTex || '', glassColor: t.door.glassColor || 'default' },
+    window: { leafColor: t.window.leafColor, leafTex: t.window.leafTex || '', glassColor: t.window.glassColor || 'default' },
+  };
+  try { pushUndo(); } catch (e) {}
+  themeApply(key);
+  hideDialog();
+  toast(`已应用 AI 主题「${t.name}」（Ctrl+Z 可退回）`, 'success', 3000);
+}
